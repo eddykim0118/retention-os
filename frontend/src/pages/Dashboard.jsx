@@ -6,6 +6,8 @@ import StatsCard from '../components/StatsCard'
 import { getInitialActivityFeed, listAccounts } from '../lib/api'
 import { reviewSimulation } from '../lib/mockData'
 
+const LAST_REVIEW_STORAGE_KEY = 'retention-os:last-review-time'
+
 function AccountsIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -53,6 +55,13 @@ function formatCurrency(value) {
   }).format(value ?? 0)
 }
 
+function formatReviewTime(date = new Date()) {
+  return date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 function getStatusTone(status) {
   if (!status) {
     return 'bg-slate-100 text-slate-700'
@@ -79,6 +88,25 @@ function getStatusLabel(status) {
   return 'Auto-executed'
 }
 
+function getPendingManualActionCount(account) {
+  if (!account.next_best_action) {
+    return 0
+  }
+
+  const executedActions = new Set(account.actions_taken ?? [])
+  let pendingCount = 0
+
+  if (!executedActions.has('linear_ticket')) {
+    pendingCount += 1
+  }
+
+  if (!executedActions.has('email_sent')) {
+    pendingCount += 1
+  }
+
+  return pendingCount
+}
+
 function Dashboard() {
   const navigate = useNavigate()
   const [accounts, setAccounts] = useState([])
@@ -87,6 +115,12 @@ function Dashboard() {
   const [isRunning, setIsRunning] = useState(false)
   const [dataSource, setDataSource] = useState('mock')
   const [error, setError] = useState('')
+  const [lastReviewTime, setLastReviewTime] = useState(() => {
+    if (typeof window === 'undefined') {
+      return null
+    }
+    return window.localStorage.getItem(LAST_REVIEW_STORAGE_KEY)
+  })
   const eventSourceRef = useRef(null)
   const simulationRef = useRef([])
 
@@ -119,13 +153,22 @@ function Dashboard() {
     setFeedItems((current) => [...current, item])
   }
 
+  function updateLastReviewTime(nextTime = formatReviewTime()) {
+    setLastReviewTime(nextTime)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(LAST_REVIEW_STORAGE_KEY, nextTime)
+    }
+  }
+
   function runReviewFallback() {
     setDataSource('mock')
     reviewSimulation.forEach((item, index) => {
       const timerId = window.setTimeout(() => {
         appendFeedItem(item)
         if (item.type === 'complete') {
+          updateLastReviewTime()
           setIsRunning(false)
+          loadAccounts()
         }
       }, index * 500)
       simulationRef.current.push(timerId)
@@ -153,15 +196,13 @@ function Dashboard() {
           message:
             payload.message ??
             (payload.account ? `Analyzing ${payload.account} (${payload.index}/${payload.total})` : 'Processing'),
-          time: new Date().toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-          }),
+          time: formatReviewTime(),
         })
 
         if (payload.type === 'complete') {
           eventSource.close()
           eventSourceRef.current = null
+          updateLastReviewTime()
           setIsRunning(false)
           loadAccounts()
         }
@@ -180,17 +221,16 @@ function Dashboard() {
   const stats = useMemo(() => {
     const atRiskAccounts = accounts.filter((account) => (account.health_score ?? 100) < 70)
     const arrAtRisk = atRiskAccounts.reduce((sum, account) => sum + (account.arr_amount ?? (account.mrr_amount ?? 0) * 12), 0)
-    const actionsToday = accounts.reduce((sum, account) => sum + (account.actions_taken?.length ?? 0), 0)
+    const actionsRequired = accounts.reduce((sum, account) => sum + getPendingManualActionCount(account), 0)
 
     return {
       total: accounts.length,
       atRisk: atRiskAccounts.length,
       arrAtRisk,
-      actionsToday,
+      actionsRequired,
     }
   }, [accounts])
-
-  const lastRunTime = feedItems.at(-1)?.time ?? '8:00 AM'
+  const lastRunTime = lastReviewTime ?? feedItems.at(-1)?.time ?? 'Never'
 
   return (
     <main className="shell-bg min-h-screen px-4 py-6 text-slate-950 sm:px-6 lg:px-10">
@@ -230,7 +270,7 @@ function Dashboard() {
             <StatsCard label="Total Accounts" value={stats.total} icon={<AccountsIcon />} detail="Current portfolio under monitoring" />
             <StatsCard label="At-Risk Accounts" value={stats.atRisk} icon={<RiskIcon />} accent="text-red-600" detail="Health score under 70" />
             <StatsCard label="ARR At Risk" value={formatCurrency(stats.arrAtRisk)} icon={<RevenueIcon />} accent="text-amber-600" detail="Annualized revenue exposed" />
-            <StatsCard label="Actions Today" value={stats.actionsToday} icon={<ActionIcon />} accent="text-emerald-600" detail="Agent outputs recorded in the feed" />
+            <StatsCard label="Action Required" value={stats.actionsRequired} icon={<ActionIcon />} accent="text-emerald-600" detail="Manual email and ticket approvals still pending" />
           </div>
         </section>
 
