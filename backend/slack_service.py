@@ -82,15 +82,11 @@ async def send_slack_alert(
                 },
             },
             {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "👤 View Account"},
-                        "url": account_url,
-                        "style": "primary",
-                    }
-                ],
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"👤 *View Account:* <{account_url}|Open in Retention OS>",
+                },
             },
             {
                 "type": "context",
@@ -161,20 +157,14 @@ async def send_slack_urgent(
             },
             {"type": "divider"},
             {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "✅ Approve on Web App"},
-                        "url": approve_url,
-                        "style": "primary",
-                    },
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "👤 View Account"},
-                        "url": account_url,
-                    },
-                ],
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"✅ *<{approve_url}|Approve on Web App>*    "
+                        f"👤 *<{account_url}|View Account>*"
+                    ),
+                },
             },
             {
                 "type": "context",
@@ -210,19 +200,10 @@ async def send_approval_confirmed(
                     "text": (
                         f"✅ *Approved & Executed* via web app\n"
                         f"*Account:* {account_name} (`{account_id}`)\n"
-                        f"*Action:* {action_taken}"
+                        f"*Action:* {action_taken}\n"
+                        f"👤 *<{account_url}|View Account>*"
                     ),
                 },
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "👤 View Account"},
-                        "url": account_url,
-                    }
-                ],
             },
         ],
     }
