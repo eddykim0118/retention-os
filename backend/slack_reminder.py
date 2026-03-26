@@ -15,7 +15,7 @@ Rules:
 import asyncio
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
-from slack_service import send_slack_urgent, send_approval_confirmed
+from slack_service import send_slack_urgent
 
 load_dotenv()
 
@@ -76,11 +76,6 @@ async def mark_approved(account_id: str, action_taken: str) -> None:
 
     s["approved"] = True
     print(f"[Reminder] ✅ {account_id} approved. No more notifications.")
-    await send_approval_confirmed(
-        account_name=s["account_name"],
-        account_id=account_id,
-        action_taken=action_taken,
-    )
 
 
 def get_status(account_id: str) -> dict:

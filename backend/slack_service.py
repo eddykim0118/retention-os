@@ -20,6 +20,10 @@ SLACK_URGENT_WEBHOOK = os.getenv("SLACK_URGENT_WEBHOOK", "")
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:5173")
 
 
+def _account_url(account_id: str) -> str:
+    return f"{APP_BASE_URL}/account/{account_id}"
+
+
 # Keywords → department mapping
 _DEPARTMENT_RULES = [
     (["invoice", "overdue", "payment", "billing", "refund", "charge", "pricing", "discount"], "💰 Finance"),
@@ -51,7 +55,7 @@ async def send_slack_alert(
     Auto-handled accounts (ARR < $50K) — no approval needed.
     Includes a link to view the account on the web app.
     """
-    account_url = f"{APP_BASE_URL}/accounts/{account_id}"
+    account_url = _account_url(account_id)
     department = _infer_department(risk_reason)
 
     message = {
@@ -85,7 +89,7 @@ async def send_slack_alert(
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"👤 *View Account:* <{account_url}|Open in Retention OS>",
+                    "text": f"👤 <{account_url}|View Account>",
                 },
             },
             {
@@ -117,8 +121,7 @@ async def send_slack_urgent(
     High-value accounts (ARR >= $50K) — approval happens on the web app.
     Slack includes a direct 'Approve on Web App' button link.
     """
-    account_url = f"{APP_BASE_URL}/accounts/{account_id}"
-    approve_url = f"{APP_BASE_URL}/accounts/{account_id}?action=approve"
+    account_url = _account_url(account_id)
     department = _infer_department(risk_reason)
 
     message = {
@@ -160,10 +163,7 @@ async def send_slack_urgent(
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": (
-                        f"✅ *<{approve_url}|Approve on Web App>*    "
-                        f"👤 *<{account_url}|View Account>*"
-                    ),
+                    "text": f"✅ <{account_url}|Approve on Web App>",
                 },
             },
             {
@@ -174,36 +174,6 @@ async def send_slack_urgent(
                         "text": "🔴 Approval required on web app | #retention-urgent",
                     }
                 ],
-            },
-        ],
-    }
-
-    return await _post_to_slack(SLACK_URGENT_WEBHOOK, message)
-
-
-async def send_approval_confirmed(
-    account_name: str,
-    account_id: str,
-    action_taken: str,
-) -> bool:
-    """
-    Notify #retention-urgent that an action was approved via the web app.
-    """
-    account_url = f"{APP_BASE_URL}/accounts/{account_id}"
-    message = {
-        "text": f":white_check_mark: Approved on web app: {account_name}",
-        "blocks": [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (
-                        f"✅ *Approved & Executed* via web app\n"
-                        f"*Account:* {account_name} (`{account_id}`)\n"
-                        f"*Action:* {action_taken}\n"
-                        f"👤 *<{account_url}|View Account>*"
-                    ),
-                },
             },
         ],
     }

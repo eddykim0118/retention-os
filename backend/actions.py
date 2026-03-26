@@ -121,26 +121,6 @@ Health Score: {health_score}/100
 ⏰ {urgency}"""
 
 
-def format_slack_approval_message(
-    account_name: str,
-    arr_amount: float,
-    action: str,
-    reasoning: str
-) -> str:
-    """
-    Format a Slack message for actions that need approval.
-    """
-    return f"""🔔 *APPROVAL NEEDED: {account_name}*
-ARR: ${arr_amount:,.0f}
-
-This account requires human approval before action.
-
-*Recommended Action:* {action.replace('_', ' ').title()}
-{reasoning}
-
-React with ✅ to approve or ❌ to reject."""
-
-
 # =============================================================================
 # LINEAR INTEGRATION (STRETCH GOAL)
 # =============================================================================

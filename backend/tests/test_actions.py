@@ -15,10 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from actions import (
     send_slack_alert,
     format_slack_alert_message,
-    format_slack_approval_message,
     create_linear_ticket,
     format_linear_ticket,
-    send_email,
 )
 
 
@@ -76,20 +74,6 @@ class TestSlackFormatting:
 
         assert "⚠️" in message
         assert "MEDIUM RISK" in message
-
-    def test_format_approval_message(self):
-        """Should format approval message with ARR."""
-        message = format_slack_approval_message(
-            account_name="Big Enterprise",
-            arr_amount=150000,
-            action="senior_outreach",
-            reasoning="High-value account at risk"
-        )
-
-        assert "APPROVAL NEEDED" in message
-        assert "Big Enterprise" in message
-        assert "$150,000" in message
-        assert "Senior Outreach" in message
 
 
 class TestLinearMock:

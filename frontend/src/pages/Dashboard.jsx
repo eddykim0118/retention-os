@@ -5,6 +5,7 @@ import RiskBadge from '../components/RiskBadge'
 import StatsCard from '../components/StatsCard'
 import { getInitialActivityFeed, listAccounts } from '../lib/api'
 import { reviewSimulation } from '../lib/mockData'
+import { getPendingManualActionCountFromSummary } from '../lib/workflow'
 
 const LAST_REVIEW_STORAGE_KEY = 'retention-os:last-review-time'
 
@@ -88,31 +89,12 @@ function getStatusLabel(status) {
   return 'Auto-executed'
 }
 
-function getPendingManualActionCount(account) {
-  if (!account?.next_best_action) {
-    return 0
-  }
-
-  const executedActions = new Set(account.actions_taken ?? [])
-  let pendingCount = 0
-
-  if (!executedActions.has('linear_ticket')) {
-    pendingCount += 1
-  }
-
-  if (!executedActions.has('email_sent')) {
-    pendingCount += 1
-  }
-
-  return pendingCount
-}
-
 function getWorkflowStatus(account) {
   if (!account?.next_best_action) {
     return null
   }
 
-  return getPendingManualActionCount(account) > 0 ? 'approval_required' : 'completed'
+  return getPendingManualActionCountFromSummary(account) > 0 ? 'approval_required' : 'completed'
 }
 
 function Dashboard() {
@@ -229,7 +211,7 @@ function Dashboard() {
   const stats = useMemo(() => {
     const atRiskAccounts = accounts.filter((account) => (account.health_score ?? 100) < 70)
     const arrAtRisk = atRiskAccounts.reduce((sum, account) => sum + (account.arr_amount ?? (account.mrr_amount ?? 0) * 12), 0)
-    const actionsRequired = accounts.reduce((sum, account) => sum + getPendingManualActionCount(account), 0)
+    const actionsRequired = accounts.reduce((sum, account) => sum + getPendingManualActionCountFromSummary(account), 0)
 
     return {
       total: accounts.length,
@@ -278,7 +260,14 @@ function Dashboard() {
             <StatsCard label="Total Accounts" value={stats.total} icon={<AccountsIcon />} detail="Current portfolio under monitoring" />
             <StatsCard label="At-Risk Accounts" value={stats.atRisk} icon={<RiskIcon />} accent="text-red-600" detail="Health score under 70" />
             <StatsCard label="ARR At Risk" value={formatCurrency(stats.arrAtRisk)} icon={<RevenueIcon />} accent="text-amber-600" detail="Annualized revenue exposed" />
-            <StatsCard label="Action Required" value={stats.actionsRequired} icon={<ActionIcon />} accent="text-emerald-600" detail="Manual email and ticket approvals still pending" />
+            <StatsCard
+              label="Action Required"
+              value={stats.actionsRequired}
+              icon={<ActionIcon />}
+              accent="text-emerald-600"
+              detail="Manual email and ticket approvals still pending"
+              onClick={() => navigate('/actions-required', { state: { accounts } })}
+            />
           </div>
         </section>
 
