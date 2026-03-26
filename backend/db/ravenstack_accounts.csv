@@ -499,3 +499,6 @@ A-55f257,Company_496,FinTech,US,2023-12-21,organic,Basic,9,False,False
 A-d26ab4,Company_497,DevTools,UK,2024-11-07,organic,Basic,9,False,True
 A-712533,Company_498,EdTech,US,2023-07-31,organic,Pro,18,False,False
 A-781cc0,Company_499,EdTech,US,2024-09-04,organic,Pro,12,False,False
+A-NIMBUS,Nimbus Analytics,DevTools,US,2024-01-15,organic,Enterprise,45,False,False
+A-VERTEX,Vertex Systems,FinTech,US,2024-03-01,partner,Pro,12,False,False
+A-ORION,Orion Global,Cybersecurity,US,2023-06-10,event,Enterprise,85,False,False
