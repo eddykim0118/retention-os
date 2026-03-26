@@ -28,7 +28,7 @@ function ActivityFeed({ items }) {
       </div>
 
       <div className="mt-6 space-y-3">
-        {items.map((item, index) => (
+        {items.slice().reverse().map((item, index) => (
           <div
             key={`${item.message}-${index}`}
             className={`flex items-start gap-4 rounded-2xl border p-4 ${feedStyles[item.type] ?? feedStyles.progress}`}
