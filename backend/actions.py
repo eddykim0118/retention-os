@@ -1,9 +1,10 @@
 """
-actions.py - External actions (Slack, Linear)
+actions.py - External actions (Slack, Linear, Email)
 
 This is the "hands" of the AI employee — it actually DOES things:
 - Sends Slack messages to alert the team
-- Creates Linear tickets for follow-up (stretch goal)
+- Creates Linear tickets for follow-up
+- Sends approved emails through Resend
 
 Key design: Graceful fallback
 If webhooks aren't configured, we log to console instead of crashing.
@@ -11,7 +12,6 @@ This lets you develop and test without external services set up.
 """
 
 import os
-from datetime import datetime
 from typing import Optional
 
 import requests
@@ -253,3 +253,90 @@ def format_linear_ticket(
 """
 
     return title, description
+
+
+# =============================================================================
+# EMAIL INTEGRATION
+# =============================================================================
+
+def send_email(account_name: str, email_content: str, to_email: Optional[str] = None) -> dict:
+    """
+    Send an approved email through Resend.
+
+    The dataset does not include customer contact emails, so TEST_EMAIL is used
+    as the approval/demo recipient by default.
+    """
+    api_key = os.environ.get("RESEND_API_KEY")
+    from_email = os.environ.get("RESEND_FROM_EMAIL")
+    recipient = to_email or os.environ.get("TEST_EMAIL")
+
+    if not api_key or not from_email or not recipient:
+        print(f"[MOCK EMAIL] Would send email for {account_name} to {recipient or 'TEST_EMAIL'}")
+        return {
+            "success": True,
+            "mock": True,
+            "detail": f"Mock email prepared for {recipient or 'TEST_EMAIL'}",
+            "recipient": recipient or "TEST_EMAIL",
+        }
+
+    subject, body = _split_email_content(email_content, account_name)
+
+    try:
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": from_email,
+                "to": [recipient],
+                "subject": subject,
+                "text": body,
+            },
+            timeout=10,
+        )
+
+        if response.status_code in (200, 201):
+            data = response.json()
+            print(f"[EMAIL] Sent email for {account_name} to {recipient}")
+            return {
+                "success": True,
+                "mock": False,
+                "detail": f"Sent email to {recipient}",
+                "recipient": recipient,
+                "email_id": data.get("id"),
+            }
+
+        print(f"[EMAIL ERROR] Status {response.status_code}: {response.text}")
+        return {
+            "success": False,
+            "mock": False,
+            "detail": f"Email API error: {response.status_code}",
+            "recipient": recipient,
+        }
+
+    except requests.RequestException as e:
+        print(f"[EMAIL ERROR] Request failed: {e}")
+        return {
+            "success": False,
+            "mock": False,
+            "detail": f"Request failed: {str(e)}",
+            "recipient": recipient,
+        }
+
+
+def _split_email_content(email_content: str, account_name: str) -> tuple[str, str]:
+    """Extract a subject/body pair from generated email content."""
+    default_subject = f"Support for {account_name}"
+
+    if not email_content:
+        return default_subject, ""
+
+    lines = email_content.splitlines()
+    if lines and lines[0].lower().startswith("subject:"):
+        subject = lines[0].split(":", 1)[1].strip() or default_subject
+        body = "\n".join(lines[1:]).strip()
+        return subject, body
+
+    return default_subject, email_content.strip()

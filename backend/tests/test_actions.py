@@ -131,5 +131,23 @@ class TestLinearFormatting:
         assert "- 2 escalated tickets" in description
 
 
+class TestEmailMock:
+    """Test email sending with mock fallback."""
+
+    def test_send_email_returns_mock_when_no_api_key(self):
+        """Should return mock result when Resend credentials are missing."""
+        os.environ.pop("RESEND_API_KEY", None)
+        os.environ.pop("RESEND_FROM_EMAIL", None)
+        os.environ.pop("TEST_EMAIL", None)
+
+        result = send_email(
+            account_name="Test Corp",
+            email_content="Subject: Hello\n\nThis is a test email.",
+        )
+
+        assert result["success"] is True
+        assert result["mock"] is True
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -37,6 +37,11 @@ class ActionTaken(BaseModel):
     status: str  # "sent", "ready", "failed"
 
 
+class ApproveRequest(BaseModel):
+    """Request body for approving manual follow-up actions."""
+    selected_actions: list[str]
+
+
 class AccountDetail(BaseModel):
     """Full detail view of an account - used in account detail page."""
     account_id: str
@@ -59,6 +64,8 @@ class AccountDetail(BaseModel):
     generated_email: Optional[str] = None
     internal_memo: Optional[str] = None
     slack_message: Optional[str] = None
+    linear_ticket_title: Optional[str] = None
+    linear_ticket_description: Optional[str] = None
     urgency_deadline: Optional[str] = None
 
     # Status and actions

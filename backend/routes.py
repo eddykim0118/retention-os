@@ -12,6 +12,7 @@ Endpoints:
 
 import asyncio
 import json
+import os
 from datetime import datetime
 from typing import Optional
 
@@ -181,6 +182,12 @@ async def get_account_detail(account_id: str):
         )
         for a in action_log
     ]
+    linear_ticket_title, linear_ticket_description = _build_linear_ticket_preview(
+        account_name=account["account_name"],
+        health_score=health_score,
+        review=review,
+        fallback_risk_reasons=risk_reasons,
+    )
 
     return AccountDetail(
         account_id=account["account_id"],
@@ -202,6 +209,8 @@ async def get_account_detail(account_id: str):
         generated_email=review.get("generated_email") if review else None,
         internal_memo=review.get("internal_memo") if review else None,
         slack_message=review.get("slack_message") if review else None,
+        linear_ticket_title=linear_ticket_title,
+        linear_ticket_description=linear_ticket_description,
         urgency_deadline=review.get("urgency_deadline") if review else None,
         # Status
         status=review.get("status") if review else None,
@@ -249,12 +258,33 @@ def _parse_list(value) -> Optional[list[str]]:
         return [value]
 
 
+def _build_linear_ticket_preview(
+    account_name: str,
+    health_score: int,
+    review: Optional[dict],
+    fallback_risk_reasons: list[str],
+) -> tuple[Optional[str], Optional[str]]:
+    """Build a deterministic Linear ticket preview from the latest review."""
+    if not review or not review.get("next_best_action"):
+        return None, None
+
+    title, description = format_linear_ticket(
+        account_name=account_name,
+        health_score=health_score,
+        action=review.get("next_best_action"),
+        reasoning=review.get("action_reasoning") or "",
+        risk_reasons=_parse_list(review.get("risk_reasons")) or fallback_risk_reasons,
+        urgency=review.get("urgency_deadline") or "Review soon",
+    )
+    return title, description
+
+
 # =============================================================================
 # SSE ENDPOINT - AI REVIEW
 # =============================================================================
 
 # Configuration
-USE_REAL_AI = True  # Set to True to use real Claude API, False for mock
+USE_REAL_AI = bool(os.environ.get("ANTHROPIC_API_KEY"))
 MAX_ACCOUNTS_TO_ANALYZE = 3  # Limit for demo purposes
 
 
@@ -357,6 +387,26 @@ async def run_review():
             autonomy_level, autonomy_reason = get_autonomy_level(health_score, arr)
             log(f"  Autonomy level: {autonomy_level} (ARR ${arr:,.0f}, score {health_score})", "INFO")
 
+            # Build the exact Slack message that will be sent so the frontend
+            # can show the same content in the risk signal preview.
+            if autonomy_level == "auto":
+                slack_msg = format_slack_alert_message(
+                    account_name=account_name,
+                    health_score=health_score,
+                    action=analysis.get("next_best_action", "training_call"),
+                    reasoning=analysis.get("action_reasoning", ""),
+                    urgency=analysis.get("urgency_deadline", "Review soon")
+                )
+            else:
+                slack_msg = format_slack_approval_message(
+                    account_name=account_name,
+                    arr_amount=arr,
+                    action=analysis.get("next_best_action", "senior_outreach"),
+                    reasoning=analysis.get("action_reasoning", "")
+                )
+
+            analysis["slack_message"] = slack_msg
+
             # Save the review result
             status = "auto_executed" if autonomy_level == "auto" else "needs_approval"
             save_review_result(account_id, health_score, analysis, autonomy_level, status)
@@ -366,13 +416,6 @@ async def run_review():
             if autonomy_level == "auto":
                 # Auto-execute: send Slack alert
                 log(f"  AUTO-EXECUTE: Sending Slack alert to #retention-alerts", "SLACK")
-                slack_msg = format_slack_alert_message(
-                    account_name=account_name,
-                    health_score=health_score,
-                    action=analysis.get("next_best_action", "training_call"),
-                    reasoning=analysis.get("action_reasoning", ""),
-                    urgency=analysis.get("urgency_deadline", "Review soon")
-                )
                 result = send_slack_alert("alerts", slack_msg)
                 log_action(account_id, "slack_alert", "#retention-alerts", result["success"])
 
@@ -392,13 +435,6 @@ async def run_review():
             else:
                 # Needs approval: send to urgent channel
                 log(f"  NEEDS APPROVAL: High-value account, sending to #retention-urgent", "WARNING")
-                slack_msg = format_slack_alert_message(
-                    account_name=account_name,
-                    health_score=health_score,
-                    action=analysis.get("next_best_action", "senior_outreach"),
-                    reasoning=analysis.get("action_reasoning", ""),
-                    urgency=f"⚠️ High-value account — ${arr:,.0f} ARR at risk. Approve on web app."
-                )
                 result = send_slack_alert("urgent", slack_msg)
                 log_action(account_id, "slack_urgent", "#retention-urgent", result["success"])
 
@@ -450,7 +486,7 @@ async def run_review():
 # =============================================================================
 
 @router.post("/accounts/{account_id}/approve", response_model=ApproveResponse)
-async def approve_action(account_id: str):
+async def approve_action(account_id: str, request: ApproveRequest):
     """
     Approve a pending action for an account.
 
@@ -471,51 +507,96 @@ async def approve_action(account_id: str):
     review = get_latest_review(account_id)
     if not review:
         log(f"No pending review found for {account_id}", "WARNING")
-        raise HTTPException(status_code=400, detail="No pending review found for this account")
+        raise HTTPException(status_code=400, detail="No review found for this account")
 
-    if review.get("status") != "needs_approval":
-        log(f"Account status is '{review.get('status')}', not 'needs_approval'", "WARNING")
-        raise HTTPException(
-            status_code=400,
-            detail=f"Account status is '{review.get('status')}', not 'needs_approval'"
-        )
+    selected_actions = []
+    for action in request.selected_actions:
+        if action in {"linear_ticket", "send_email"} and action not in selected_actions:
+            selected_actions.append(action)
+
+    if not selected_actions:
+        raise HTTPException(status_code=400, detail="No valid manual actions selected")
 
     account_name = account.get("account_name", "Unknown")
     arr = _safe_float(account.get("arr_amount")) or 0
+    health_score = _safe_int(review.get("health_score")) or calculate_health_score(account_id)[0]
+    risk_reasons = _parse_list(review.get("risk_reasons")) or []
+    executed_at = datetime.now().isoformat()
+    executed_actions = []
 
     log(f"Approving action for {account_name} (${arr:,.0f} ARR)", "ACTION")
     log(f"Recommended action: {review.get('next_best_action')}", "INFO")
 
-    # Execute the approved action
-    log(f"Sending approval notification to #retention-urgent", "SLACK")
-    slack_msg = f"✅ *APPROVED*: Action for {account_name} (${arr:,.0f} ARR)\n\n"
-    slack_msg += f"Action: {review.get('next_best_action', 'N/A')}\n"
-    slack_msg += f"Approved at: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+    if "linear_ticket" in selected_actions:
+        title, description = format_linear_ticket(
+            account_name=account_name,
+            health_score=health_score,
+            action=review.get("next_best_action") or "support_escalation",
+            reasoning=review.get("action_reasoning") or "",
+            risk_reasons=risk_reasons,
+            urgency=review.get("urgency_deadline") or "Review soon",
+        )
+        priority = 1 if health_score < 40 else 2 if health_score <= 70 else 3
+        result = create_linear_ticket(title=title, description=description, priority=priority)
+        detail_value = result.get("ticket_url") or result.get("detail", "Linear")
+        log_action(account_id, "linear_ticket", detail_value, result["success"])
+        executed_actions.append(
+            ActionTaken(
+                type="linear_ticket",
+                channel=detail_value,
+                timestamp=executed_at,
+                status="sent" if result["success"] else "failed",
+            )
+        )
 
-    result = send_slack_alert("urgent", slack_msg)
-    log_action(account_id, "approved", "#retention-urgent", result["success"])
+    if "send_email" in selected_actions:
+        email_result = send_email(
+            account_name=account_name,
+            email_content=review.get("generated_email") or "",
+        )
+        log_action(account_id, "email_sent", email_result.get("recipient", "TEST_EMAIL"), email_result["success"])
+        executed_actions.append(
+            ActionTaken(
+                type="email_sent",
+                channel=email_result.get("recipient"),
+                timestamp=executed_at,
+                status="sent" if email_result["success"] else "failed",
+            )
+        )
 
-    if result["success"]:
-        log(f"Approval notification sent successfully!", "SUCCESS")
-    else:
-        log(f"Approval notification failed: {result.get('detail')}", "WARNING")
+    response_status = review.get("status") or "pending"
+    if review.get("status") == "needs_approval":
+        log(f"Sending approval notification to #retention-urgent", "SLACK")
+        slack_msg = f"✅ *APPROVED*: Action for {account_name} (${arr:,.0f} ARR)\n\n"
+        slack_msg += f"Action: {review.get('next_best_action', 'N/A')}\n"
+        slack_msg += f"Approved actions: {', '.join(selected_actions)}\n"
+        slack_msg += f"Approved at: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
-    # Update status
-    update_review_status(account_id, "approved")
-    log(f"Account status updated to 'approved'", "SUCCESS")
-    log(f"APPROVAL COMPLETE for {account_name}", "SUCCESS")
+        result = send_slack_alert("urgent", slack_msg)
+        log_action(account_id, "approved", "#retention-urgent", result["success"])
 
-    return ApproveResponse(
-        status="approved",
-        actions_executed=[
+        if result["success"]:
+            log(f"Approval notification sent successfully!", "SUCCESS")
+        else:
+            log(f"Approval notification failed: {result.get('detail')}", "WARNING")
+
+        update_review_status(account_id, "approved")
+        log(f"Account status updated to 'approved'", "SUCCESS")
+        log(f"APPROVAL COMPLETE for {account_name}", "SUCCESS")
+        response_status = "approved"
+        executed_actions.append(
             ActionTaken(
                 type="slack_urgent",
                 channel="#retention-urgent",
-                timestamp=datetime.now().isoformat(),
-                status="sent" if result["success"] else "failed"
+                timestamp=executed_at,
+                status="sent" if result["success"] else "failed",
             )
-        ],
-        approved_at=datetime.now().isoformat()
+        )
+
+    return ApproveResponse(
+        status=response_status,
+        actions_executed=executed_actions,
+        approved_at=executed_at,
     )
 
 
