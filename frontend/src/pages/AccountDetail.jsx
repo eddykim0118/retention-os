@@ -21,6 +21,25 @@ function toActionLabel(action) {
     .join(' ')
 }
 
+function getPendingManualActions(detail) {
+  if (!detail?.next_best_action) {
+    return []
+  }
+
+  const executedActions = new Set((detail.actions_taken ?? []).map((action) => action.type))
+  const pendingActions = []
+
+  if (detail.linear_ticket_title && !executedActions.has('linear_ticket')) {
+    pendingActions.push('linear_ticket')
+  }
+
+  if (detail.generated_email && !executedActions.has('email_sent')) {
+    pendingActions.push('send_email')
+  }
+
+  return pendingActions
+}
+
 function AccountDetail() {
   const { id } = useParams()
   const [detail, setDetail] = useState(null)
@@ -49,34 +68,18 @@ function AccountDetail() {
     }
   }, [id])
 
-  async function handleApprove() {
-    if (!detail || isApproving) {
+  async function handleApprove(selectedActions) {
+    if (!detail || isApproving || selectedActions.length === 0) {
       return
     }
 
     setIsApproving(true)
     try {
-      await approveAccount(detail.account_id)
-      setDetail((current) =>
-        current
-          ? {
-              ...current,
-              status: 'approved',
-              autonomy_level: 'human',
-              actions_taken: [
-                ...(current.actions_taken ?? []),
-                {
-                  type: 'approval',
-                  timestamp: new Date().toLocaleTimeString('en-US', {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                  }),
-                  status: 'completed',
-                },
-              ],
-            }
-          : current,
-      )
+      await approveAccount(detail.account_id, selectedActions)
+      const refreshed = await getAccountDetail(detail.account_id)
+      if (refreshed) {
+        setDetail(refreshed)
+      }
     } catch {
       setError('Approval failed. Try again when the backend is available.')
     } finally {
@@ -116,14 +119,46 @@ function AccountDetail() {
   }
 
   const tabContent = {
-    email: detail.generated_email,
-    memo: detail.internal_memo,
-    slack: detail.slack_message,
+    email: detail.generated_email ?? 'No email draft available yet.',
+    linear: detail.linear_ticket_title
+      ? `${detail.linear_ticket_title}\n\n${detail.linear_ticket_description ?? ''}`.trim()
+      : 'No Linear ticket preview available yet.',
+    memo: detail.internal_memo ?? 'No internal memo available yet.',
   }
 
   const reviewPending = !detail.status
-  const needsApproval = detail.status === 'needs_approval'
-  const approvalComplete = detail.status === 'approved'
+  const executedActionTypes = new Set((detail.actions_taken ?? []).map((action) => action.type))
+  const pendingManualActions = getPendingManualActions(detail)
+  const manualApprovalRequired = !reviewPending && pendingManualActions.length > 0
+  const approvalComplete = !reviewPending && pendingManualActions.length === 0
+  const canCreateLinear = pendingManualActions.includes('linear_ticket')
+  const canSendEmail = pendingManualActions.includes('send_email')
+  const combinedActions = pendingManualActions
+  const executionModeTone = reviewPending
+    ? 'bg-slate-100 text-slate-700'
+    : manualApprovalRequired
+      ? 'bg-orange-100 text-orange-800'
+      : 'bg-sky-100 text-sky-800'
+  const executionModeLabel = reviewPending
+    ? 'Pending Review'
+    : manualApprovalRequired
+      ? 'Approval Required'
+      : 'Completed'
+  const recommendedActionTone = reviewPending
+    ? 'bg-slate-100 text-slate-700'
+    : manualApprovalRequired
+      ? 'bg-orange-100 text-orange-800'
+      : 'bg-sky-100 text-sky-800'
+  const recommendedActionLabel = reviewPending
+    ? 'Pending Review'
+    : manualApprovalRequired
+      ? 'Approval Required'
+      : 'Completed'
+  const executionModeDescription = reviewPending
+    ? detail.autonomy_reason
+    : manualApprovalRequired
+      ? 'Slack notification has already been sent. Review the recommended Linear ticket and email draft, then approve the follow-up actions manually.'
+      : 'Slack notification was sent and the recommended follow-up actions have already been completed.'
 
   return (
     <main className="shell-bg min-h-screen px-4 py-6 sm:px-6 lg:px-10">
@@ -152,25 +187,23 @@ function AccountDetail() {
                 <div className="rounded-[2rem] border border-slate-200 bg-white/80 px-5 py-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">Execution Mode</p>
                   <p
-                    className={`mt-3 inline-flex rounded-full px-3 py-1 text-sm font-semibold ${
-                      reviewPending
-                        ? 'bg-slate-100 text-slate-700'
-                        : needsApproval
-                          ? 'bg-orange-100 text-orange-800'
-                          : approvalComplete
-                            ? 'bg-sky-100 text-sky-800'
-                            : 'bg-emerald-100 text-emerald-800'
-                    }`}
+                    className={`mt-3 inline-flex rounded-full px-3 py-1 text-sm font-semibold ${executionModeTone}`}
                   >
-                    {reviewPending ? 'Pending Review' : needsApproval ? 'Needs Approval' : approvalComplete ? 'Approved' : 'Auto-executed'}
+                    {executionModeLabel}
                   </p>
-                  <p className="mt-3 max-w-xs text-sm leading-6 text-slate-600">{detail.autonomy_reason}</p>
+                  <p className="mt-3 max-w-xs text-sm leading-6 text-slate-600">{executionModeDescription}</p>
                 </div>
               </div>
 
               <div className="mt-8 rounded-[2rem] border border-slate-200 bg-white/88 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.06)]">
                 <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">Risk Signals</p>
                 <div className="mt-5 grid gap-3">
+                  {detail.slack_message ? (
+                    <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-4 text-sm leading-6 text-sky-800">
+                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-sky-600">Slack Alert Preview</p>
+                      <p className="mt-2">{detail.slack_message}</p>
+                    </div>
+                  ) : null}
                   {detail.risk_reasons?.map((reason) => (
                     <div key={reason} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-700">
                       {reason}
@@ -186,21 +219,9 @@ function AccountDetail() {
                     <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">{toActionLabel(detail.next_best_action)}</h2>
                   </div>
                   <div
-                    className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${
-                      reviewPending
-                        ? 'bg-slate-100 text-slate-700'
-                        : detail.autonomy_level === 'auto' && !approvalComplete
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-orange-100 text-orange-800'
-                    }`}
+                    className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${recommendedActionTone}`}
                   >
-                    {reviewPending
-                      ? 'Pending Review'
-                      : detail.autonomy_level === 'auto' && !approvalComplete
-                        ? 'Auto-executed'
-                        : approvalComplete
-                          ? 'Approved'
-                          : 'Needs Approval'}
+                    {recommendedActionLabel}
                   </div>
                 </div>
                 <p className="mt-5 text-sm leading-7 text-slate-700">{detail.action_reasoning}</p>
@@ -214,8 +235,8 @@ function AccountDetail() {
                 <div className="flex flex-wrap gap-2">
                   {[
                     ['email', 'Customer Email'],
+                    ['linear', 'Linear Ticket'],
                     ['memo', 'Internal Memo'],
-                    ['slack', 'Slack Message'],
                   ].map(([value, label]) => (
                     <button
                       key={value}
@@ -262,21 +283,47 @@ function AccountDetail() {
                 </div>
               </div>
 
-              {needsApproval || approvalComplete ? (
+              {manualApprovalRequired ? (
                 <div className="rounded-[2rem] border border-orange-200 bg-orange-50 p-6 shadow-[0_18px_60px_rgba(251,146,60,0.12)]">
                   <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-700">Approval Gate</p>
-                  <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Senior outreach approval</h2>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Approve manual follow-up</h2>
                   <p className="mt-3 text-sm leading-7 text-slate-700">
-                    Orion Global crosses the human approval threshold because executive involvement is part of the proposed action.
+                    Slack has already been sent automatically. Review the Linear ticket and customer email below, then approve either action or both.
                   </p>
-                  <button
-                    type="button"
-                    onClick={handleApprove}
-                    disabled={isApproving || approvalComplete}
-                    className="mt-5 w-full rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-                  >
-                    {approvalComplete ? 'Approved' : isApproving ? 'Approving...' : 'Approve Senior Outreach'}
-                  </button>
+                  <div className="mt-5 space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => handleApprove(['linear_ticket'])}
+                      disabled={isApproving || !canCreateLinear}
+                      className="w-full rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                    >
+                      {executedActionTypes.has('linear_ticket') ? 'Linear Ticket Created' : isApproving ? 'Processing...' : 'Approve Linear Ticket'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApprove(['send_email'])}
+                      disabled={isApproving || !canSendEmail}
+                      className="w-full rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                    >
+                      {executedActionTypes.has('email_sent') ? 'Email Sent' : isApproving ? 'Processing...' : 'Approve Email Send'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApprove(combinedActions)}
+                      disabled={isApproving || combinedActions.length < 2}
+                      className="w-full rounded-full border border-orange-300 bg-orange-100 px-5 py-3 text-sm font-semibold text-orange-900 transition hover:bg-orange-200 disabled:cursor-not-allowed disabled:border-orange-100 disabled:bg-orange-50 disabled:text-orange-400"
+                    >
+                      {isApproving ? 'Processing...' : 'Approve Both'}
+                    </button>
+                  </div>
+                </div>
+              ) : approvalComplete ? (
+                <div className="rounded-[2rem] border border-sky-200 bg-sky-50 p-6 shadow-[0_18px_60px_rgba(59,130,246,0.10)]">
+                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-700">Workflow Complete</p>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">All follow-up actions approved</h2>
+                  <p className="mt-3 text-sm leading-7 text-slate-700">
+                    Slack was sent automatically, and the recommended Linear ticket and email workflow no longer require approval for this account.
+                  </p>
                 </div>
               ) : null}
 

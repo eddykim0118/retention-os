@@ -34,13 +34,23 @@ export async function getAccountDetail(accountId) {
   }
 }
 
-export async function approveAccount(accountId) {
+export async function approveAccount(accountId, selectedActions) {
   try {
-    return await requestJson(`/api/accounts/${accountId}/approve`, { method: 'POST' })
+    return await requestJson(`/api/accounts/${accountId}/approve`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ selected_actions: selectedActions }),
+    })
   } catch {
     return {
       status: 'approved',
       approved_at: new Date().toISOString(),
+      actions_executed: selectedActions.map((action) => ({
+        type: action,
+        status: 'sent',
+      })),
       mock: true,
     }
   }
