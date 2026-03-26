@@ -54,6 +54,9 @@ function formatCurrency(value) {
 }
 
 function getStatusTone(status) {
+  if (!status) {
+    return 'bg-slate-100 text-slate-700'
+  }
   if (status === 'needs_approval') {
     return 'bg-orange-100 text-orange-800'
   }
@@ -64,6 +67,9 @@ function getStatusTone(status) {
 }
 
 function getStatusLabel(status) {
+  if (!status) {
+    return 'Pending Review'
+  }
   if (status === 'needs_approval') {
     return 'Needs Approval'
   }

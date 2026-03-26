@@ -136,8 +136,19 @@ def get_all_accounts() -> list[dict]:
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Join accounts with subscriptions to get MRR/ARR
+    # Some accounts have multiple active subscription rows in the seed data.
+    # Pick the latest active row per account so the account list stays unique.
     cursor.execute("""
+        WITH ranked_subscriptions AS (
+            SELECT
+                s.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY s.account_id
+                    ORDER BY s.start_date DESC, s.subscription_id DESC
+                ) AS rn
+            FROM subscriptions s
+            WHERE s.end_date IS NULL OR s.end_date = ''
+        )
         SELECT
             a.account_id,
             a.account_name,
@@ -155,8 +166,10 @@ def get_all_accounts() -> list[dict]:
             s.start_date,
             s.end_date
         FROM accounts a
-        LEFT JOIN subscriptions s ON a.account_id = s.account_id
-        WHERE s.end_date IS NULL OR s.end_date = ''
+        LEFT JOIN ranked_subscriptions s
+            ON a.account_id = s.account_id
+            AND s.rn = 1
+        ORDER BY a.account_id
     """)
 
     rows = cursor.fetchall()
@@ -171,6 +184,16 @@ def get_account_by_id(account_id: str) -> Optional[dict]:
     cursor = conn.cursor()
 
     cursor.execute("""
+        WITH ranked_subscriptions AS (
+            SELECT
+                s.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY s.account_id
+                    ORDER BY s.start_date DESC, s.subscription_id DESC
+                ) AS rn
+            FROM subscriptions s
+            WHERE s.end_date IS NULL OR s.end_date = ''
+        )
         SELECT
             a.account_id,
             a.account_name,
@@ -188,7 +211,9 @@ def get_account_by_id(account_id: str) -> Optional[dict]:
             s.start_date,
             s.end_date
         FROM accounts a
-        LEFT JOIN subscriptions s ON a.account_id = s.account_id
+        LEFT JOIN ranked_subscriptions s
+            ON a.account_id = s.account_id
+            AND s.rn = 1
         WHERE a.account_id = ?
     """, (account_id,))
 

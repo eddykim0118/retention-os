@@ -12,6 +12,9 @@ function formatCurrency(value) {
 }
 
 function toActionLabel(action) {
+  if (!action) {
+    return 'Awaiting Review'
+  }
   return action
     ?.split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -118,6 +121,7 @@ function AccountDetail() {
     slack: detail.slack_message,
   }
 
+  const reviewPending = !detail.status
   const needsApproval = detail.status === 'needs_approval'
   const approvalComplete = detail.status === 'approved'
 
@@ -149,10 +153,16 @@ function AccountDetail() {
                   <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">Execution Mode</p>
                   <p
                     className={`mt-3 inline-flex rounded-full px-3 py-1 text-sm font-semibold ${
-                      needsApproval ? 'bg-orange-100 text-orange-800' : approvalComplete ? 'bg-sky-100 text-sky-800' : 'bg-emerald-100 text-emerald-800'
+                      reviewPending
+                        ? 'bg-slate-100 text-slate-700'
+                        : needsApproval
+                          ? 'bg-orange-100 text-orange-800'
+                          : approvalComplete
+                            ? 'bg-sky-100 text-sky-800'
+                            : 'bg-emerald-100 text-emerald-800'
                     }`}
                   >
-                    {needsApproval ? 'Needs Approval' : approvalComplete ? 'Approved' : 'Auto-executed'}
+                    {reviewPending ? 'Pending Review' : needsApproval ? 'Needs Approval' : approvalComplete ? 'Approved' : 'Auto-executed'}
                   </p>
                   <p className="mt-3 max-w-xs text-sm leading-6 text-slate-600">{detail.autonomy_reason}</p>
                 </div>
@@ -177,10 +187,20 @@ function AccountDetail() {
                   </div>
                   <div
                     className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${
-                      detail.autonomy_level === 'auto' && !approvalComplete ? 'bg-emerald-100 text-emerald-800' : 'bg-orange-100 text-orange-800'
+                      reviewPending
+                        ? 'bg-slate-100 text-slate-700'
+                        : detail.autonomy_level === 'auto' && !approvalComplete
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-orange-100 text-orange-800'
                     }`}
                   >
-                    {detail.autonomy_level === 'auto' && !approvalComplete ? 'Auto-executed' : approvalComplete ? 'Approved' : 'Needs Approval'}
+                    {reviewPending
+                      ? 'Pending Review'
+                      : detail.autonomy_level === 'auto' && !approvalComplete
+                        ? 'Auto-executed'
+                        : approvalComplete
+                          ? 'Approved'
+                          : 'Needs Approval'}
                   </div>
                 </div>
                 <p className="mt-5 text-sm leading-7 text-slate-700">{detail.action_reasoning}</p>

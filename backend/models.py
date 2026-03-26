@@ -26,11 +26,12 @@ class AccountSummary(BaseModel):
     arr_amount: Optional[float] = None
     next_best_action: Optional[str] = None
     status: Optional[str] = None  # "pending", "auto_executed", "needs_approval", "approved"
+    actions_taken: Optional[list[str]] = None
 
 
 class ActionTaken(BaseModel):
     """Record of an action taken by the AI."""
-    action_type: str  # "slack_alert", "slack_urgent", "email_draft", "linear_ticket"
+    type: str  # "slack_alert", "slack_urgent", "email_draft", "linear_ticket"
     channel: Optional[str] = None  # e.g., "#retention-alerts"
     timestamp: Optional[str] = None
     status: str  # "sent", "ready", "failed"

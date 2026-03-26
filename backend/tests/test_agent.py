@@ -121,7 +121,9 @@ class TestMockAnalyze:
         signals = {
             "account_name": "Test",
             "health_score": 40,
-            "ticket_stats": {"escalations": 2}
+            "arr_amount": 10000,
+            "ticket_stats": {"count_last_30d": 4, "unresolved": 4, "escalations": 2},
+            "usage_trend": {"change_percent": -10},
         }
 
         result = mock_analyze_account(signals)
@@ -133,7 +135,8 @@ class TestMockAnalyze:
         signals = {
             "account_name": "Test",
             "health_score": 40,
-            "ticket_stats": {"escalations": 0},
+            "arr_amount": 10000,
+            "ticket_stats": {"count_last_30d": 2, "unresolved": 2, "escalations": 0},
             "usage_trend": {"change_percent": -50}
         }
 
@@ -141,13 +144,28 @@ class TestMockAnalyze:
 
         assert result["next_best_action"] == "training_call"
 
+    def test_mock_finance_action_for_overdue_account(self):
+        """Should recommend finance_reminder when billing is overdue."""
+        signals = {
+            "account_name": "Test",
+            "health_score": 65,
+            "days_overdue": 14,
+            "arr_amount": 18000,
+            "ticket_stats": {"count_last_30d": 0, "unresolved": 0, "escalations": 0},
+            "usage_trend": {"change_percent": 5},
+        }
+
+        result = mock_analyze_account(signals)
+
+        assert result["next_best_action"] == "finance_reminder"
+
     def test_mock_senior_action_for_high_value(self):
         """Should recommend senior_outreach for high-value accounts."""
         signals = {
             "account_name": "Test",
-            "health_score": 40,
+            "health_score": 20,
             "arr_amount": 100000,
-            "ticket_stats": {"escalations": 0},
+            "ticket_stats": {"count_last_30d": 3, "unresolved": 2, "escalations": 1},
             "usage_trend": {"change_percent": -10}
         }
 

@@ -86,6 +86,7 @@ async def list_accounts():
 
         # Get latest review if exists
         review = get_latest_review(account["account_id"])
+        action_log = get_action_log(account["account_id"])
 
         result.append(AccountSummary(
             account_id=account["account_id"],
@@ -98,6 +99,7 @@ async def list_accounts():
             arr_amount=_safe_float(account.get("arr_amount")),
             next_best_action=review.get("next_best_action") if review else None,
             status=review.get("status") if review else None,
+            actions_taken=[entry["action_type"] for entry in action_log] or None,
         ))
 
     # Sort by health score (worst first)
@@ -137,7 +139,7 @@ async def get_account_detail(account_id: str):
     action_log = get_action_log(account_id)
     actions_taken = [
         ActionTaken(
-            action_type=a["action_type"],
+            type=a["action_type"],
             channel=a.get("action_detail"),
             timestamp=a.get("executed_at"),
             status="sent" if a.get("success") else "failed"
@@ -408,7 +410,7 @@ async def approve_action(account_id: str):
         status="approved",
         actions_executed=[
             ActionTaken(
-                action_type="slack_urgent",
+                type="slack_urgent",
                 channel="#retention-urgent",
                 timestamp=datetime.now().isoformat(),
                 status="sent" if result["success"] else "failed"

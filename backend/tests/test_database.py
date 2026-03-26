@@ -65,6 +65,14 @@ class TestAccountQueries:
         for field in required_fields:
             assert field in first, f"Account should have '{field}' field"
 
+    def test_get_all_accounts_returns_unique_account_ids(self):
+        """The account list should not duplicate accounts when subscriptions do."""
+        init_database()
+        accounts = get_all_accounts()
+        account_ids = [account["account_id"] for account in accounts]
+
+        assert len(account_ids) == len(set(account_ids))
+
     def test_get_account_by_id_returns_account(self):
         """get_account_by_id should return a single account."""
         init_database()
@@ -80,6 +88,16 @@ class TestAccountQueries:
         init_database()
         account = get_account_by_id("INVALID-ID-12345")
         assert account is None
+
+    def test_get_account_by_id_uses_latest_active_subscription(self):
+        """Account detail should use the latest active subscription row."""
+        init_database()
+        account = get_account_by_id("A-592832")
+
+        assert account is not None
+        assert account["subscription_id"] == "S-0c63de"
+        assert account["start_date"] == "2024-12-31"
+        assert account["mrr_amount"] == "882"
 
 
 class TestTicketQueries:
