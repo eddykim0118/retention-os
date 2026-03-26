@@ -6,6 +6,45 @@ import StatsCard from '../components/StatsCard'
 import { getInitialActivityFeed, listAccounts } from '../lib/api'
 import { reviewSimulation } from '../lib/mockData'
 
+function AccountsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" />
+      <circle cx="9.5" cy="7" r="3" />
+      <path d="M20 8v6" />
+      <path d="M23 11h-6" />
+    </svg>
+  )
+}
+
+function RiskIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+    </svg>
+  )
+}
+
+function RevenueIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 3v18h18" />
+      <path d="m7 15 4-4 3 3 5-6" />
+      <path d="M18 8h1v1" />
+    </svg>
+  )
+}
+
+function ActionIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8Z" />
+    </svg>
+  )
+}
+
 function formatCurrency(value) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -182,10 +221,10 @@ function Dashboard() {
           </div>
 
           <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <StatsCard label="Total Accounts" value={stats.total} detail="Current portfolio under monitoring" />
-            <StatsCard label="At-Risk Accounts" value={stats.atRisk} accent="text-red-600" detail="Health score under 70" />
-            <StatsCard label="ARR At Risk" value={formatCurrency(stats.arrAtRisk)} accent="text-amber-600" detail="Annualized revenue exposed" />
-            <StatsCard label="Actions Today" value={stats.actionsToday} accent="text-emerald-600" detail="Agent outputs recorded in the feed" />
+            <StatsCard label="Total Accounts" value={stats.total} icon={<AccountsIcon />} detail="Current portfolio under monitoring" />
+            <StatsCard label="At-Risk Accounts" value={stats.atRisk} icon={<RiskIcon />} accent="text-red-600" detail="Health score under 70" />
+            <StatsCard label="ARR At Risk" value={formatCurrency(stats.arrAtRisk)} icon={<RevenueIcon />} accent="text-amber-600" detail="Annualized revenue exposed" />
+            <StatsCard label="Actions Today" value={stats.actionsToday} icon={<ActionIcon />} accent="text-emerald-600" detail="Agent outputs recorded in the feed" />
           </div>
         </section>
 
