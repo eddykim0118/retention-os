@@ -127,7 +127,7 @@ def analyze_account(account_signals: dict) -> Optional[dict]:
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-4-5-20250514",
+            model="claude-sonnet-4-5-20250929",
             max_tokens=2000,
             system=SYSTEM_PROMPT,
             tools=[ANALYSIS_TOOL],
