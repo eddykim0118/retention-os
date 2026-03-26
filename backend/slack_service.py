@@ -1,16 +1,41 @@
 """
 Slack Notification Service for Retention OS
-Sends alerts to #retention-alerts and #retention-urgent channels
+Sends alerts to #retention-alerts and #retention-urgent channels.
+
+Slack is for NOTIFICATION only.
+All approvals happen on the web app — Slack includes a direct link button.
 """
 
 import os
 import httpx
-from typing import Optional
+from dotenv import load_dotenv
 
+load_dotenv()
 
 # Webhook URLs from environment variables
 SLACK_ALERTS_WEBHOOK = os.getenv("SLACK_ALERTS_WEBHOOK", "")
 SLACK_URGENT_WEBHOOK = os.getenv("SLACK_URGENT_WEBHOOK", "")
+
+# Base URL of the web app (frontend)
+APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:5173")
+
+
+# Keywords → department mapping
+_DEPARTMENT_RULES = [
+    (["invoice", "overdue", "payment", "billing", "refund", "charge", "pricing", "discount"], "💰 Finance"),
+    (["bug", "crash", "error", "broken", "outage", "degraded", "slow", "timeout", "api",
+      "feature", "export", "dashboard", "performance"], "🛠️ Engineering"),
+    (["competitor", "alternative", "evaluating", "switching", "churn", "cancel"], "🤝 Sales"),
+    (["onboarding", "training", "workflow", "setup", "adoption", "usage"], "🎓 Customer Success"),
+]
+
+
+def _infer_department(risk_reason: str) -> str:
+    lower = risk_reason.lower()
+    for keywords, department in _DEPARTMENT_RULES:
+        if any(kw in lower for kw in keywords):
+            return department
+    return "📋 General"
 
 
 async def send_slack_alert(
@@ -23,8 +48,12 @@ async def send_slack_alert(
 ) -> bool:
     """
     Send a churn risk alert to #retention-alerts channel.
-    Used for accounts that are auto-handled (ARR < $50K).
+    Auto-handled accounts (ARR < $50K) — no approval needed.
+    Includes a link to view the account on the web app.
     """
+    account_url = f"{APP_BASE_URL}/accounts/{account_id}"
+    department = _infer_department(risk_reason)
+
     message = {
         "text": f":warning: *Churn Risk Detected: {account_name}*",
         "blocks": [
@@ -41,6 +70,7 @@ async def send_slack_alert(
                     {"type": "mrkdwn", "text": f"*Account ID:*\n{account_id}"},
                     {"type": "mrkdwn", "text": f"*Health Score:*\n{health_score}/100"},
                     {"type": "mrkdwn", "text": f"*ARR:*\n${arr:,}"},
+                    {"type": "mrkdwn", "text": f"*Department:*\n{department}"},
                     {"type": "mrkdwn", "text": f"*Risk Reason:*\n{risk_reason}"},
                 ],
             },
@@ -50,6 +80,17 @@ async def send_slack_alert(
                     "type": "mrkdwn",
                     "text": f"*AI Analysis:*\n{ai_summary}",
                 },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "👤 View Account"},
+                        "url": account_url,
+                        "style": "primary",
+                    }
+                ],
             },
             {
                 "type": "context",
@@ -76,17 +117,22 @@ async def send_slack_urgent(
     recommended_action: str,
 ) -> bool:
     """
-    Send an urgent approval request to #retention-urgent channel.
-    Used for high-value accounts (ARR >= $50K) that need human approval.
+    Send an urgent notification to #retention-urgent channel.
+    High-value accounts (ARR >= $50K) — approval happens on the web app.
+    Slack includes a direct 'Approve on Web App' button link.
     """
+    account_url = f"{APP_BASE_URL}/accounts/{account_id}"
+    approve_url = f"{APP_BASE_URL}/accounts/{account_id}?action=approve"
+    department = _infer_department(risk_reason)
+
     message = {
-        "text": f":rotating_light: *URGENT — Approval Needed: {account_name}*",
+        "text": f":rotating_light: *URGENT — Action Required: {account_name}*",
         "blocks": [
             {
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": f"🚨 URGENT — Approval Needed: {account_name}",
+                    "text": f"🚨 URGENT — Action Required: {account_name}",
                 },
             },
             {
@@ -95,6 +141,7 @@ async def send_slack_urgent(
                     {"type": "mrkdwn", "text": f"*Account ID:*\n{account_id}"},
                     {"type": "mrkdwn", "text": f"*Health Score:*\n{health_score}/100"},
                     {"type": "mrkdwn", "text": f"*ARR:*\n${arr:,} 🔴 High Value"},
+                    {"type": "mrkdwn", "text": f"*Department:*\n{department}"},
                     {"type": "mrkdwn", "text": f"*Risk Reason:*\n{risk_reason}"},
                 ],
             },
@@ -112,12 +159,29 @@ async def send_slack_urgent(
                     "text": f"*Recommended Action:*\n{recommended_action}",
                 },
             },
+            {"type": "divider"},
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "✅ Approve on Web App"},
+                        "url": approve_url,
+                        "style": "primary",
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "👤 View Account"},
+                        "url": account_url,
+                    },
+                ],
+            },
             {
                 "type": "context",
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": "🔴 Waiting for human approval | #retention-urgent",
+                        "text": "🔴 Approval required on web app | #retention-urgent",
                     }
                 ],
             },
@@ -133,18 +197,33 @@ async def send_approval_confirmed(
     action_taken: str,
 ) -> bool:
     """
-    Notify #retention-urgent that an action was approved and executed.
+    Notify #retention-urgent that an action was approved via the web app.
     """
+    account_url = f"{APP_BASE_URL}/accounts/{account_id}"
     message = {
-        "text": f":white_check_mark: Approved & Executed: {account_name}",
+        "text": f":white_check_mark: Approved on web app: {account_name}",
         "blocks": [
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"✅ *Approved & Executed*: {account_name} (`{account_id}`)\n*Action:* {action_taken}",
+                    "text": (
+                        f"✅ *Approved & Executed* via web app\n"
+                        f"*Account:* {account_name} (`{account_id}`)\n"
+                        f"*Action:* {action_taken}"
+                    ),
                 },
-            }
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "👤 View Account"},
+                        "url": account_url,
+                    }
+                ],
+            },
         ],
     }
 
