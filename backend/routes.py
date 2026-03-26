@@ -39,7 +39,6 @@ try:
     from actions import (
         send_slack_alert,
         format_slack_alert_message,
-        format_slack_approval_message,
     )
 except ImportError:
     from backend.database import (
@@ -62,7 +61,6 @@ except ImportError:
     from backend.actions import (
         send_slack_alert,
         format_slack_alert_message,
-        format_slack_approval_message,
     )
 
 
@@ -394,11 +392,12 @@ async def run_review():
             else:
                 # Needs approval: send to urgent channel
                 log(f"  NEEDS APPROVAL: High-value account, sending to #retention-urgent", "WARNING")
-                slack_msg = format_slack_approval_message(
+                slack_msg = format_slack_alert_message(
                     account_name=account_name,
-                    arr_amount=arr,
+                    health_score=health_score,
                     action=analysis.get("next_best_action", "senior_outreach"),
-                    reasoning=analysis.get("action_reasoning", "")
+                    reasoning=analysis.get("action_reasoning", ""),
+                    urgency=f"⚠️ High-value account — ${arr:,.0f} ARR at risk. Approve on web app."
                 )
                 result = send_slack_alert("urgent", slack_msg)
                 log_action(account_id, "slack_urgent", "#retention-urgent", result["success"])
