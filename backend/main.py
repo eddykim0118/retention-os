@@ -8,10 +8,19 @@ This is the "front door" of our backend. It:
 4. Includes all API routes
 """
 
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Load .env file from project root
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(env_path)
+print(f"[APP] Loaded environment from {env_path}")
+print(f"[APP] ANTHROPIC_API_KEY configured: {'Yes' if os.environ.get('ANTHROPIC_API_KEY') else 'No'}")
 
 try:
     from database import init_database

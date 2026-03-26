@@ -62,7 +62,21 @@ def calculate_health_score(account_id: str) -> tuple[int, list[str]]:
         score -= 20
         reasons.append("Account has downgrade flag")
 
-    # 5. Satisfaction score < 3: -15
+    # 5. Payment overdue: -20 if > 7 days, -35 if > 30 days
+    days_overdue = account.get("days_overdue")
+    if days_overdue and days_overdue != "" and days_overdue != "0":
+        try:
+            days = int(days_overdue)
+            if days > 30:
+                score -= 35
+                reasons.append(f"Payment {days} days overdue (critical)")
+            elif days > 7:
+                score -= 20
+                reasons.append(f"Payment {days} days overdue")
+        except (ValueError, TypeError):
+            pass
+
+    # 6. Satisfaction score < 3: -15
     if stats["min_satisfaction"] is not None and stats["min_satisfaction"] < 3:
         score -= 15
         reasons.append(f"Satisfaction score: {stats['min_satisfaction']}/5")

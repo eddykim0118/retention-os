@@ -151,6 +151,7 @@ def get_all_accounts() -> list[dict]:
             s.mrr_amount,
             s.arr_amount,
             s.downgrade_flag,
+            s.days_overdue,
             s.start_date,
             s.end_date
         FROM accounts a
@@ -183,6 +184,7 @@ def get_account_by_id(account_id: str) -> Optional[dict]:
             s.mrr_amount,
             s.arr_amount,
             s.downgrade_flag,
+            s.days_overdue,
             s.start_date,
             s.end_date
         FROM accounts a
