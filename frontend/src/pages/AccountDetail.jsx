@@ -118,15 +118,15 @@ function AccountDetail() {
     )
   }
 
+  const reviewPending = !detail.status
+  const pendingMessage = 'Run the Daily Review to generate AI-powered content for this account.'
   const tabContent = {
-    email: detail.generated_email ?? 'No email draft available yet.',
+    email: detail.generated_email ?? (reviewPending ? pendingMessage : 'No email draft available.'),
     linear: detail.linear_ticket_title
       ? `${detail.linear_ticket_title}\n\n${detail.linear_ticket_description ?? ''}`.trim()
-      : 'No Linear ticket preview available yet.',
-    memo: detail.internal_memo ?? 'No internal memo available yet.',
+      : (reviewPending ? pendingMessage : 'No Linear ticket preview available.'),
+    memo: detail.internal_memo ?? (reviewPending ? pendingMessage : 'No internal memo available.'),
   }
-
-  const reviewPending = !detail.status
   const executedActionTypes = new Set((detail.actions_taken ?? []).map((action) => action.type))
   const pendingManualActions = getPendingManualActions(detail)
   const manualApprovalRequired = !reviewPending && pendingManualActions.length > 0
@@ -155,7 +155,7 @@ function AccountDetail() {
       ? 'Approval Required'
       : 'Completed'
   const executionModeDescription = reviewPending
-    ? detail.autonomy_reason
+    ? 'This account has not been analyzed yet. Click "Run Daily Review" on the Dashboard to have the AI analyze at-risk accounts and recommend actions.'
     : manualApprovalRequired
       ? 'Slack notification has already been sent. Review the recommended Linear ticket and email draft, then approve the follow-up actions manually.'
       : 'Slack notification was sent and the recommended follow-up actions have already been completed.'
@@ -204,11 +204,17 @@ function AccountDetail() {
                       <p className="mt-2">{detail.slack_message}</p>
                     </div>
                   ) : null}
-                  {detail.risk_reasons?.map((reason) => (
-                    <div key={reason} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-700">
-                      {reason}
+                  {detail.risk_reasons?.length > 0 ? (
+                    detail.risk_reasons.map((reason) => (
+                      <div key={reason} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm leading-6 text-slate-700">
+                        {reason}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm leading-6 text-emerald-700">
+                      No risk signals detected. This account appears healthy.
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
 
@@ -224,11 +230,20 @@ function AccountDetail() {
                     {recommendedActionLabel}
                   </div>
                 </div>
-                <p className="mt-5 text-sm leading-7 text-slate-700">{detail.action_reasoning}</p>
-                <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-600">{detail.why_not_others}</div>
-                <div className="mt-5 inline-flex rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white">
-                  {detail.urgency_deadline}
-                </div>
+                {reviewPending ? (
+                  <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-7 text-amber-800">
+                    <p className="font-semibold">AI analysis not yet available</p>
+                    <p className="mt-2">Run the Daily Review from the Dashboard to analyze this account. The AI will evaluate risk signals and recommend the best intervention strategy.</p>
+                  </div>
+                ) : (
+                  <>
+                    <p className="mt-5 text-sm leading-7 text-slate-700">{detail.action_reasoning}</p>
+                    <div className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm leading-7 text-slate-600">{detail.why_not_others}</div>
+                    <div className="mt-5 inline-flex rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white">
+                      {detail.urgency_deadline}
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="mt-8 rounded-[2rem] border border-slate-200 bg-white/88 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.06)]">

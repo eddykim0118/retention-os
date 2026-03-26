@@ -105,30 +105,26 @@ def get_autonomy_level(health_score: int, arr_amount: float) -> tuple[str, str]:
     Determine if AI should act autonomously or ask for approval.
 
     Logic:
-    - High-risk (score < 40) AND high-value (ARR >= $50K) = needs approval
-    - Everything else = auto-execute
+    - ALL accounts require human approval before taking action
+    - The AI analyzes and recommends, but humans decide
 
     Returns:
         tuple: (level, reason)
-        - level: "auto" or "needs_approval"
+        - level: always "needs_approval"
         - reason: explanation for the decision
     """
     arr = float(arr_amount) if arr_amount else 0
 
-    if health_score < 40 and arr >= 50000:
+    # All accounts require approval - human-in-the-loop for all decisions
+    if health_score < 40:
         return (
             "needs_approval",
-            f"High-risk account (score {health_score}) with ARR ${arr:,.0f} requires approval"
-        )
-    elif health_score < 40:
-        return (
-            "auto",
-            f"High-risk but ARR ${arr:,.0f} is under $50K threshold — auto-execution allowed"
+            f"High-risk account (score {health_score}) requires human review before action"
         )
     else:
         return (
-            "auto",
-            f"Health score {health_score} is not critical — auto-execution allowed"
+            "needs_approval",
+            f"Account flagged for review — awaiting human approval"
         )
 
 

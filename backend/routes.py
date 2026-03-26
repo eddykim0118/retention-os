@@ -28,6 +28,7 @@ try:
         save_review_result,
         log_action,
         update_review_status,
+        get_reviewed_account_ids,
     )
     from health_score import (
         calculate_health_score,
@@ -43,7 +44,6 @@ try:
         send_slack_alert,
         send_email,
         format_slack_alert_message,
-        format_slack_approval_message,
     )
 except ImportError:
     from backend.database import (
@@ -54,6 +54,7 @@ except ImportError:
         save_review_result,
         log_action,
         update_review_status,
+        get_reviewed_account_ids,
     )
     from backend.health_score import (
         calculate_health_score,
@@ -69,7 +70,6 @@ except ImportError:
         send_slack_alert,
         send_email,
         format_slack_alert_message,
-        format_slack_approval_message,
     )
 
 
@@ -321,6 +321,8 @@ async def run_review():
     log("=" * 60, "START")
 
     async def event_stream():
+        global DEMO_MODE_ACTIVE  # Declare at the top of the function
+
         # 1. Scan all accounts
         log("Step 1: Scanning all accounts from database...", "INFO")
         yield _sse_event({
@@ -340,18 +342,40 @@ async def run_review():
         # 2. Find at-risk accounts
         log("Step 2: Identifying at-risk accounts (health score < 70)...", "INFO")
         at_risk = get_at_risk_accounts(accounts, threshold=70)
-        log(f"Step 2: Found {len(at_risk)} at-risk accounts", "WARNING")
+        log(f"Step 2: Found {len(at_risk)} at-risk accounts total", "WARNING")
+
+        # 2.5. Filter out accounts that have already been reviewed
+        # This ensures subsequent runs analyze NEW accounts, not the same ones
+        reviewed_ids = get_reviewed_account_ids()
+        unreviewed_at_risk = [a for a in at_risk if a["account_id"] not in reviewed_ids]
+        log(f"Step 2.5: {len(reviewed_ids)} already reviewed, {len(unreviewed_at_risk)} remaining to analyze", "INFO")
+
+        if not unreviewed_at_risk:
+            log("All at-risk accounts have been reviewed!", "SUCCESS")
+            yield _sse_event({
+                "type": "progress",
+                "message": f"All {len(at_risk)} at-risk accounts have already been reviewed!"
+            })
+            await asyncio.sleep(0.3)
+            yield _sse_event({
+                "type": "complete",
+                "message": "No new accounts to analyze. All at-risk accounts have been reviewed.",
+                "auto_executed": 0,
+                "needs_approval": 0
+            })
+            DEMO_MODE_ACTIVE = False
+            return
+
         yield _sse_event({
             "type": "progress",
-            "message": f"Identified {len(at_risk)} at-risk accounts, analyzing top {min(len(at_risk), MAX_ACCOUNTS_TO_ANALYZE)}..."
+            "message": f"Found {len(unreviewed_at_risk)} unreviewed at-risk accounts, analyzing top {min(len(unreviewed_at_risk), MAX_ACCOUNTS_TO_ANALYZE)}..."
         })
         await asyncio.sleep(0.3)
 
-        # 3. Analyze top N at-risk accounts
-        top_accounts = at_risk[:MAX_ACCOUNTS_TO_ANALYZE]
+        # 3. Analyze top N at-risk accounts (from unreviewed list)
+        top_accounts = unreviewed_at_risk[:MAX_ACCOUNTS_TO_ANALYZE]
         log(f"Step 3: Will analyze top {len(top_accounts)} accounts", "INFO")
-        auto_executed = 0
-        needs_approval = 0
+        needs_approval = 0  # All accounts need approval now
 
         for i, account in enumerate(top_accounts):
             account_name = account.get("account_name", "Unknown")
@@ -391,91 +415,58 @@ async def run_review():
                 analysis = mock_analyze_account(signals)
                 await asyncio.sleep(1)  # Simulate AI thinking time
 
-            # Determine autonomy level
+            # Determine autonomy level (always needs_approval now - human in the loop)
             autonomy_level, autonomy_reason = get_autonomy_level(health_score, arr)
-            log(f"  Autonomy level: {autonomy_level} (ARR ${arr:,.0f}, score {health_score})", "INFO")
+            log(f"  Autonomy level: {autonomy_level} (all accounts require approval)", "INFO")
 
-            # Build the exact Slack message that will be sent so the frontend
-            # can show the same content in the risk signal preview.
-            if autonomy_level == "auto":
-                slack_msg = format_slack_alert_message(
-                    account_name=account_name,
-                    health_score=health_score,
-                    action=analysis.get("next_best_action", "training_call"),
-                    reasoning=analysis.get("action_reasoning", ""),
-                    urgency=analysis.get("urgency_deadline", "Review soon")
-                )
-            else:
-                slack_msg = format_slack_approval_message(
-                    account_name=account_name,
-                    arr_amount=arr,
-                    action=analysis.get("next_best_action", "senior_outreach"),
-                    reasoning=analysis.get("action_reasoning", "")
-                )
+            # Build the Slack notification message
+            slack_msg = format_slack_alert_message(
+                account_name=account_name,
+                health_score=health_score,
+                action=analysis.get("next_best_action", "training_call"),
+                reasoning=analysis.get("action_reasoning", ""),
+                urgency=analysis.get("urgency_deadline", "Review soon")
+            )
 
             analysis["slack_message"] = slack_msg
 
-            # Save the review result
-            status = "auto_executed" if autonomy_level == "auto" else "needs_approval"
-            save_review_result(account_id, health_score, analysis, autonomy_level, status)
+            # Save the review result - all accounts need approval
+            save_review_result(account_id, health_score, analysis, autonomy_level, "needs_approval")
             log(f"  Saved review result to database", "SUCCESS")
 
-            # Take action based on autonomy level
-            if autonomy_level == "auto":
-                # Auto-execute: send Slack alert
-                log(f"  AUTO-EXECUTE: Sending Slack alert to #retention-alerts", "SLACK")
-                result = send_slack_alert("alerts", slack_msg)
-                log_action(account_id, "slack_alert", "#retention-alerts", result["success"])
+            # Send Slack notification (but don't execute actions - those need approval)
+            log(f"  Sending Slack notification to #retention-alerts", "SLACK")
+            result = send_slack_alert("alerts", slack_msg)
+            log_action(account_id, "slack_alert", "#retention-alerts", result["success"])
 
-                if result["success"]:
-                    log(f"  Slack alert sent successfully!", "SUCCESS")
-                else:
-                    log(f"  Slack alert failed: {result.get('detail')}", "WARNING")
-
-                yield _sse_event({
-                    "type": "action",
-                    "account": account_name,
-                    "action": "slack_sent",
-                    "message": f"✅ Sent Slack alert for {account_name}"
-                })
-                auto_executed += 1
-
+            if result["success"]:
+                log(f"  Slack notification sent successfully!", "SUCCESS")
             else:
-                # Needs approval: send to urgent channel
-                log(f"  NEEDS APPROVAL: High-value account, sending to #retention-urgent", "WARNING")
-                result = send_slack_alert("urgent", slack_msg)
-                log_action(account_id, "slack_urgent", "#retention-urgent", result["success"])
+                log(f"  Slack notification failed: {result.get('detail')}", "WARNING")
 
-                if result["success"]:
-                    log(f"  Urgent Slack sent successfully!", "SUCCESS")
-                else:
-                    log(f"  Urgent Slack failed: {result.get('detail')}", "WARNING")
-
-                yield _sse_event({
-                    "type": "action",
-                    "account": account_name,
-                    "action": "needs_approval",
-                    "message": f"⚠️ {account_name} needs approval — ${arr:,.0f} ARR at risk"
-                })
-                needs_approval += 1
+            yield _sse_event({
+                "type": "warning",
+                "account": account_name,
+                "action": "needs_approval",
+                "message": f"⚠️ {account_name} ready for review — ${arr:,.0f} ARR"
+            })
+            needs_approval += 1
 
             await asyncio.sleep(0.3)
 
         # 4. Complete - disable demo mode so accounts are now visible
         log("=" * 60, "SUCCESS")
         log(f"REVIEW COMPLETE!", "SUCCESS")
-        log(f"  Auto-executed: {auto_executed}", "ACTION")
-        log(f"  Needs approval: {needs_approval}", "WARNING")
+        log(f"  Accounts analyzed: {needs_approval} (all require approval)", "WARNING")
         log("=" * 60, "SUCCESS")
 
-        global DEMO_MODE_ACTIVE
         DEMO_MODE_ACTIVE = False
         log("Demo mode DISABLED - dashboard will now show all accounts", "DEMO")
 
         yield _sse_event({
             "type": "complete",
-            "message": f"Review complete. {auto_executed} auto-executed, {needs_approval} need approval.",
-            "auto_executed": auto_executed,
+            "message": f"Review complete. {needs_approval} accounts ready for approval.",
+            "auto_executed": 0,
             "needs_approval": needs_approval
         })
 

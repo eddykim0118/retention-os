@@ -454,3 +454,23 @@ def update_review_status(account_id: str, new_status: str):
 
     conn.commit()
     conn.close()
+
+
+def get_reviewed_account_ids() -> set[str]:
+    """Get the set of all account IDs that have been reviewed.
+
+    This is used by the run_review endpoint to skip accounts
+    that have already been analyzed, so subsequent runs
+    process the NEXT batch of at-risk accounts.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT DISTINCT account_id FROM review_results
+    """)
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    return {row["account_id"] for row in rows}
