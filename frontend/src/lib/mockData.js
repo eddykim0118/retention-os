@@ -1,0 +1,145 @@
+const detailRecords = {
+  'A-NIMBUS': {
+    account_id: 'A-NIMBUS',
+    account_name: 'Nimbus Analytics',
+    industry: 'DevTools',
+    plan_tier: 'Enterprise',
+    seats: 45,
+    health_score: 20,
+    risk_level: 'high',
+    mrr_amount: 3000,
+    arr_amount: 36000,
+    churn_risk_score: 80,
+    risk_reasons: [
+      'Usage dropped 67% in the last 30 days',
+      '4 unresolved support tickets',
+      '2 tickets escalated',
+      'Satisfaction score: 1/5',
+    ],
+    next_best_action: 'training_call',
+    action_reasoning:
+      'The sharp usage decline points to product friction, so a guided training call is the best recovery path.',
+    why_not_others:
+      'finance_reminder: no billing issue detected. support_escalation alone would not address the adoption problem. senior_outreach: ARR is below the executive approval threshold.',
+    generated_email:
+      'Subject: Support for Nimbus Analytics\n\nHi Nimbus Analytics team,\n\nWe identified a risk signal on your account and want to help quickly. Our recommended next step is a training call to address the issue directly.\n\nReply with the best contact and timing, and we will coordinate immediately.\n\nBest,\nCustomer Success',
+    internal_memo:
+      'PRIORITY: CRITICAL\nAccount: Nimbus Analytics\nHealth Score: 20\nRecommended Action: Training Call\nRisk Signals: Usage dropped 67% in the last 30 days; 4 unresolved support tickets; 2 tickets escalated; Satisfaction score: 1/5\nDeadline: Action needed within 48 hours',
+    slack_message:
+      '🚨 Nimbus Analytics is at risk (score: 20) — recommended action: Training Call',
+    status: 'auto_executed',
+    autonomy_level: 'auto',
+    autonomy_reason: 'High-risk but ARR $36,000 is under $50K threshold — auto-execution allowed',
+    actions_taken: [
+      { type: 'slack_alert', channel: '#retention-alerts', timestamp: '10:03 AM', status: 'sent' },
+    ],
+    urgency_deadline: 'Action needed within 48 hours',
+  },
+  'A-VERTEX': {
+    account_id: 'A-VERTEX',
+    account_name: 'Vertex Systems',
+    industry: 'FinTech',
+    plan_tier: 'Pro',
+    seats: 12,
+    health_score: 80,
+    risk_level: 'low',
+    mrr_amount: 1500,
+    arr_amount: 18000,
+    churn_risk_score: 20,
+    risk_reasons: [
+      'Invoice is overdue by 14 days',
+      'Usage is healthy, suggesting this is a payment issue instead of product friction',
+      'No escalated support tickets',
+    ],
+    next_best_action: 'finance_reminder',
+    action_reasoning:
+      'The account remains active, and the clearest retention risk is the overdue invoice.',
+    why_not_others:
+      'training_call: usage is steady. support_escalation: there is no active support backlog. senior_outreach: account value does not justify executive intervention.',
+    generated_email:
+      'Subject: Support for Vertex Systems\n\nHi Vertex Systems team,\n\nWe identified a risk signal on your account and want to help quickly. Our recommended next step is a finance reminder to address the issue directly.\n\nReply with the best contact and timing, and we will coordinate immediately.\n\nBest,\nCustomer Success',
+    internal_memo:
+      'PRIORITY: MEDIUM\nAccount: Vertex Systems\nHealth Score: 80\nRecommended Action: Finance Reminder\nRisk Signals: Invoice is overdue by 14 days; Usage is healthy, suggesting this is a payment issue instead of product friction; No escalated support tickets\nDeadline: Resolve within 72 hours',
+    slack_message:
+      '🚨 Vertex Systems is at risk (score: 80) — recommended action: Finance Reminder',
+    status: 'auto_executed',
+    autonomy_level: 'auto',
+    autonomy_reason: 'Health score 80 is not critical — auto-execution allowed',
+    actions_taken: [
+      { type: 'slack_alert', channel: '#retention-alerts', timestamp: '10:04 AM', status: 'sent' },
+    ],
+    urgency_deadline: 'Resolve within 72 hours',
+  },
+  'A-ORION': {
+    account_id: 'A-ORION',
+    account_name: 'Orion Global',
+    industry: 'Cybersecurity',
+    plan_tier: 'Enterprise',
+    seats: 85,
+    health_score: 30,
+    risk_level: 'high',
+    mrr_amount: 8500,
+    arr_amount: 102000,
+    churn_risk_score: 70,
+    risk_reasons: [
+      'Recent support ticket mentions competitor evaluation',
+      'Customer sentiment is 1/5 across recent tickets',
+      'Critical workflow issues remain unresolved',
+      'ARR exceeds the executive approval threshold',
+    ],
+    next_best_action: 'senior_outreach',
+    action_reasoning:
+      'This is a high-value account with multiple retention signals, so executive attention is the right next step.',
+    why_not_others:
+      'finance_reminder: no billing issue is present. training_call: adoption is not the primary risk. support_escalation alone is too narrow for a high-value account with competitive pressure.',
+    generated_email:
+      'Subject: Support for Orion Global\n\nHi Orion Global team,\n\nWe identified a risk signal on your account and want to help quickly. Our recommended next step is a senior outreach to address the issue directly.\n\nReply with the best contact and timing, and we will coordinate immediately.\n\nBest,\nCustomer Success',
+    internal_memo:
+      'PRIORITY: HIGH\nAccount: Orion Global\nHealth Score: 30\nRecommended Action: Senior Outreach\nRisk Signals: Recent support ticket mentions competitor evaluation; Customer sentiment is 1/5 across recent tickets; Critical workflow issues remain unresolved; ARR exceeds the executive approval threshold\nDeadline: Executive response needed today',
+    slack_message:
+      '🚨 Orion Global is at risk (score: 30) — recommended action: Senior Outreach',
+    status: 'needs_approval',
+    autonomy_level: 'human',
+    autonomy_reason: 'High-risk account (score 30) with ARR $102,000 requires approval',
+    actions_taken: [{ type: 'slack_urgent', channel: '#retention-urgent', timestamp: '10:05 AM', status: 'queued' }],
+    urgency_deadline: 'Executive response needed today',
+  },
+}
+
+export const mockAccounts = Object.values(detailRecords).map((detail) => ({
+  account_id: detail.account_id,
+  account_name: detail.account_name,
+  industry: detail.industry,
+  plan_tier: detail.plan_tier,
+  health_score: detail.health_score,
+  risk_level: detail.risk_level,
+  mrr_amount: detail.mrr_amount,
+  arr_amount: detail.arr_amount,
+  next_best_action: detail.next_best_action,
+  status: detail.status,
+  actions_taken: detail.actions_taken.map(({ type }) => type),
+}))
+
+export const mockActivityFeed = [
+  { type: 'progress', message: 'Scanned 500 accounts', time: '10:01 AM' },
+  { type: 'action', message: 'Sent Slack alert for Nimbus Analytics', time: '10:03 AM' },
+  { type: 'action', message: 'Sent finance reminder draft for Vertex Systems', time: '10:04 AM' },
+  { type: 'warning', message: 'Orion Global needs approval. $102K ARR at risk.', time: '10:05 AM' },
+  { type: 'complete', message: 'Review complete. 2 auto-executed, 1 needs approval.', time: '10:05 AM' },
+]
+
+export const reviewSimulation = [
+  { type: 'progress', message: 'Scanning 500 accounts...', time: '10:01 AM' },
+  { type: 'progress', message: 'Found 3 at-risk accounts', time: '10:02 AM' },
+  { type: 'analyzing', message: 'Analyzing Nimbus Analytics (1/3)', time: '10:03 AM' },
+  { type: 'action', message: 'Sent Slack alert for Nimbus Analytics', time: '10:03 AM' },
+  { type: 'analyzing', message: 'Analyzing Vertex Systems (2/3)', time: '10:04 AM' },
+  { type: 'action', message: 'Prepared finance reminder for Vertex Systems', time: '10:04 AM' },
+  { type: 'analyzing', message: 'Analyzing Orion Global (3/3)', time: '10:05 AM' },
+  { type: 'warning', message: 'Orion Global requires approval for senior outreach', time: '10:05 AM' },
+  { type: 'complete', message: 'Review complete. 2 auto-executed, 1 waiting for approval.', time: '10:05 AM' },
+]
+
+export function getMockDetail(accountId) {
+  return detailRecords[accountId] ?? null
+}
