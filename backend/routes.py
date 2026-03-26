@@ -76,6 +76,34 @@ except ImportError:
 router = APIRouter(prefix="/api", tags=["accounts"])
 
 
+# =============================================================================
+# LOGGING HELPER
+# =============================================================================
+def log(message: str, level: str = "INFO"):
+    """Print a formatted log message."""
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    prefix = {
+        "INFO": "📋",
+        "START": "🚀",
+        "AI": "🤖",
+        "SLACK": "💬",
+        "SUCCESS": "✅",
+        "WARNING": "⚠️",
+        "ACTION": "⚡",
+        "DEMO": "🎬",
+    }.get(level, "📋")
+    print(f"[{timestamp}] {prefix} {message}")
+
+
+# =============================================================================
+# DEMO MODE - For live demo to judges
+# =============================================================================
+# When True, /api/accounts returns empty until "Run Daily Review" is clicked.
+# This creates a "fresh start" experience for demos.
+DEMO_MODE_ACTIVE = True
+log("Demo mode ACTIVE - dashboard will show empty until 'Run Daily Review' is clicked", "DEMO")
+
+
 @router.get("/accounts", response_model=list[AccountSummary])
 async def list_accounts():
     """
@@ -83,7 +111,16 @@ async def list_accounts():
 
     This is used by the Dashboard to show the account table.
     """
+    global DEMO_MODE_ACTIVE
+
+    # Demo mode: return empty list until review is run
+    if DEMO_MODE_ACTIVE:
+        log("GET /api/accounts → Demo mode active, returning empty list", "DEMO")
+        return []
+
+    log("GET /api/accounts → Loading accounts from database...", "INFO")
     accounts = get_all_accounts()
+    log(f"GET /api/accounts → Found {len(accounts)} accounts", "INFO")
     result = []
 
     for account in accounts:
@@ -278,8 +315,14 @@ async def run_review():
     - action: AI took an action (Slack sent, etc.)
     - complete: Review finished
     """
+    log("=" * 60, "START")
+    log("RUN DAILY REVIEW - Starting AI review process", "START")
+    log(f"Configuration: USE_REAL_AI={USE_REAL_AI}, MAX_ACCOUNTS={MAX_ACCOUNTS_TO_ANALYZE}", "INFO")
+    log("=" * 60, "START")
+
     async def event_stream():
         # 1. Scan all accounts
+        log("Step 1: Scanning all accounts from database...", "INFO")
         yield _sse_event({
             "type": "progress",
             "message": "Scanning accounts..."
@@ -287,6 +330,7 @@ async def run_review():
         await asyncio.sleep(0.5)  # Small delay for UI effect
 
         accounts = get_all_accounts()
+        log(f"Step 1: Found {len(accounts)} total accounts", "SUCCESS")
         yield _sse_event({
             "type": "progress",
             "message": f"Found {len(accounts)} total accounts"
@@ -294,7 +338,9 @@ async def run_review():
         await asyncio.sleep(0.3)
 
         # 2. Find at-risk accounts
+        log("Step 2: Identifying at-risk accounts (health score < 70)...", "INFO")
         at_risk = get_at_risk_accounts(accounts, threshold=70)
+        log(f"Step 2: Found {len(at_risk)} at-risk accounts", "WARNING")
         yield _sse_event({
             "type": "progress",
             "message": f"Identified {len(at_risk)} at-risk accounts, analyzing top {min(len(at_risk), MAX_ACCOUNTS_TO_ANALYZE)}..."
@@ -303,6 +349,7 @@ async def run_review():
 
         # 3. Analyze top N at-risk accounts
         top_accounts = at_risk[:MAX_ACCOUNTS_TO_ANALYZE]
+        log(f"Step 3: Will analyze top {len(top_accounts)} accounts", "INFO")
         auto_executed = 0
         needs_approval = 0
 
@@ -312,6 +359,10 @@ async def run_review():
             health_score = account["health_score"]
             risk_reasons = account.get("risk_reasons", [])
             arr = _safe_float(account.get("arr_amount")) or 0
+
+            log("-" * 50, "INFO")
+            log(f"Analyzing account {i+1}/{len(top_accounts)}: {account_name}", "AI")
+            log(f"  Health Score: {health_score}, ARR: ${arr:,.0f}", "INFO")
 
             # Send "analyzing" event
             yield _sse_event({
@@ -323,19 +374,26 @@ async def run_review():
             await asyncio.sleep(0.5)
 
             # Build signals and run AI analysis
+            log(f"  Building account signals for Claude...", "AI")
             signals = build_account_signals(account, health_score, risk_reasons)
 
             if USE_REAL_AI:
+                log(f"  Calling Claude API (real AI)...", "AI")
                 analysis = analyze_account(signals)
-                if not analysis:
+                if analysis:
+                    log(f"  Claude response received!", "SUCCESS")
+                    log(f"  → Recommended action: {analysis.get('next_best_action')}", "AI")
+                else:
+                    log(f"  Claude API failed, falling back to mock", "WARNING")
                     analysis = mock_analyze_account(signals)
             else:
+                log(f"  Using mock analysis (USE_REAL_AI=False)", "INFO")
                 analysis = mock_analyze_account(signals)
                 await asyncio.sleep(1)  # Simulate AI thinking time
 
             # Determine autonomy level
             autonomy_level, autonomy_reason = get_autonomy_level(health_score, arr)
-            status = "auto_executed" if autonomy_level == "auto" else "needs_approval"
+            log(f"  Autonomy level: {autonomy_level} (ARR ${arr:,.0f}, score {health_score})", "INFO")
 
             # Build the exact Slack message that will be sent so the frontend
             # can show the same content in the risk signal preview.
@@ -358,13 +416,21 @@ async def run_review():
             analysis["slack_message"] = slack_msg
 
             # Save the review result
+            status = "auto_executed" if autonomy_level == "auto" else "needs_approval"
             save_review_result(account_id, health_score, analysis, autonomy_level, status)
+            log(f"  Saved review result to database", "SUCCESS")
 
             # Take action based on autonomy level
             if autonomy_level == "auto":
                 # Auto-execute: send Slack alert
+                log(f"  AUTO-EXECUTE: Sending Slack alert to #retention-alerts", "SLACK")
                 result = send_slack_alert("alerts", slack_msg)
                 log_action(account_id, "slack_alert", "#retention-alerts", result["success"])
+
+                if result["success"]:
+                    log(f"  Slack alert sent successfully!", "SUCCESS")
+                else:
+                    log(f"  Slack alert failed: {result.get('detail')}", "WARNING")
 
                 yield _sse_event({
                     "type": "action",
@@ -376,8 +442,14 @@ async def run_review():
 
             else:
                 # Needs approval: send to urgent channel
+                log(f"  NEEDS APPROVAL: High-value account, sending to #retention-urgent", "WARNING")
                 result = send_slack_alert("urgent", slack_msg)
                 log_action(account_id, "slack_urgent", "#retention-urgent", result["success"])
+
+                if result["success"]:
+                    log(f"  Urgent Slack sent successfully!", "SUCCESS")
+                else:
+                    log(f"  Urgent Slack failed: {result.get('detail')}", "WARNING")
 
                 yield _sse_event({
                     "type": "action",
@@ -389,7 +461,17 @@ async def run_review():
 
             await asyncio.sleep(0.3)
 
-        # 4. Complete
+        # 4. Complete - disable demo mode so accounts are now visible
+        log("=" * 60, "SUCCESS")
+        log(f"REVIEW COMPLETE!", "SUCCESS")
+        log(f"  Auto-executed: {auto_executed}", "ACTION")
+        log(f"  Needs approval: {needs_approval}", "WARNING")
+        log("=" * 60, "SUCCESS")
+
+        global DEMO_MODE_ACTIVE
+        DEMO_MODE_ACTIVE = False
+        log("Demo mode DISABLED - dashboard will now show all accounts", "DEMO")
+
         yield _sse_event({
             "type": "complete",
             "message": f"Review complete. {auto_executed} auto-executed, {needs_approval} need approval.",
@@ -419,14 +501,20 @@ async def approve_action(account_id: str, request: ApproveRequest):
     This is called when a human clicks "Approve" on the frontend
     for a high-value account that required approval.
     """
+    log("=" * 60, "ACTION")
+    log(f"HUMAN APPROVAL - Account: {account_id}", "ACTION")
+    log("=" * 60, "ACTION")
+
     # Get the account
     account = get_account_by_id(account_id)
     if not account:
+        log(f"Account {account_id} not found!", "WARNING")
         raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
     # Get the latest review
     review = get_latest_review(account_id)
     if not review:
+        log(f"No pending review found for {account_id}", "WARNING")
         raise HTTPException(status_code=400, detail="No review found for this account")
 
     selected_actions = []
@@ -443,6 +531,9 @@ async def approve_action(account_id: str, request: ApproveRequest):
     risk_reasons = _parse_list(review.get("risk_reasons")) or []
     executed_at = datetime.now().isoformat()
     executed_actions = []
+
+    log(f"Approving action for {account_name} (${arr:,.0f} ARR)", "ACTION")
+    log(f"Recommended action: {review.get('next_best_action')}", "INFO")
 
     if "linear_ticket" in selected_actions:
         title, description = format_linear_ticket(
@@ -483,6 +574,7 @@ async def approve_action(account_id: str, request: ApproveRequest):
 
     response_status = review.get("status") or "pending"
     if review.get("status") == "needs_approval":
+        log(f"Sending approval notification to #retention-urgent", "SLACK")
         slack_msg = f"✅ *APPROVED*: Action for {account_name} (${arr:,.0f} ARR)\n\n"
         slack_msg += f"Action: {review.get('next_best_action', 'N/A')}\n"
         slack_msg += f"Approved actions: {', '.join(selected_actions)}\n"
@@ -490,7 +582,15 @@ async def approve_action(account_id: str, request: ApproveRequest):
 
         result = send_slack_alert("urgent", slack_msg)
         log_action(account_id, "approved", "#retention-urgent", result["success"])
+
+        if result["success"]:
+            log(f"Approval notification sent successfully!", "SUCCESS")
+        else:
+            log(f"Approval notification failed: {result.get('detail')}", "WARNING")
+
         update_review_status(account_id, "approved")
+        log(f"Account status updated to 'approved'", "SUCCESS")
+        log(f"APPROVAL COMPLETE for {account_name}", "SUCCESS")
         response_status = "approved"
         executed_actions.append(
             ActionTaken(
@@ -506,3 +606,31 @@ async def approve_action(account_id: str, request: ApproveRequest):
         actions_executed=executed_actions,
         approved_at=executed_at,
     )
+
+
+# =============================================================================
+# DEMO RESET ENDPOINT
+# =============================================================================
+
+@router.post("/reset")
+async def reset_demo():
+    """
+    Reset the demo to fresh state.
+
+    Call this before starting a new demo to the judges.
+    It resets the system to show empty dashboard until "Run Daily Review" is clicked.
+    """
+    log("=" * 60, "DEMO")
+    log("DEMO RESET - Resetting to fresh state", "DEMO")
+    log("=" * 60, "DEMO")
+
+    global DEMO_MODE_ACTIVE
+    DEMO_MODE_ACTIVE = True
+
+    log("Demo mode ACTIVE - dashboard will show empty until review is run", "DEMO")
+
+    return {
+        "status": "reset",
+        "message": "Demo mode activated. Dashboard will show empty until 'Run Daily Review' is clicked.",
+        "demo_mode": DEMO_MODE_ACTIVE
+    }
