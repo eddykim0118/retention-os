@@ -66,10 +66,10 @@ function getStatusTone(status) {
   if (!status) {
     return 'bg-slate-100 text-slate-700'
   }
-  if (status === 'needs_approval') {
+  if (status === 'approval_required' || status === 'needs_approval') {
     return 'bg-orange-100 text-orange-800'
   }
-  if (status === 'approved') {
+  if (status === 'completed' || status === 'approved') {
     return 'bg-sky-100 text-sky-800'
   }
   return 'bg-emerald-100 text-emerald-800'
@@ -79,17 +79,17 @@ function getStatusLabel(status) {
   if (!status) {
     return 'Pending Review'
   }
-  if (status === 'needs_approval') {
-    return 'Needs Approval'
+  if (status === 'approval_required' || status === 'needs_approval') {
+    return 'Approval Required'
   }
-  if (status === 'approved') {
-    return 'Approved'
+  if (status === 'completed' || status === 'approved') {
+    return 'Completed'
   }
   return 'Auto-executed'
 }
 
 function getPendingManualActionCount(account) {
-  if (!account.next_best_action) {
+  if (!account?.next_best_action) {
     return 0
   }
 
@@ -105,6 +105,14 @@ function getPendingManualActionCount(account) {
   }
 
   return pendingCount
+}
+
+function getWorkflowStatus(account) {
+  if (!account?.next_best_action) {
+    return null
+  }
+
+  return getPendingManualActionCount(account) > 0 ? 'approval_required' : 'completed'
 }
 
 function Dashboard() {
@@ -313,29 +321,33 @@ function Dashboard() {
                   : accounts
                       .slice()
                       .sort((a, b) => (a.health_score ?? 100) - (b.health_score ?? 100))
-                      .map((account) => (
-                        <button
-                          key={account.account_id}
-                          type="button"
-                          onClick={() => navigate(`/account/${account.account_id}`)}
-                          className="grid w-full gap-3 px-5 py-5 text-left transition hover:bg-slate-50 md:grid-cols-[1.6fr_1fr_0.9fr_0.9fr_1fr]"
-                        >
-                          <div>
-                            <p className="text-base font-semibold text-slate-950">{account.account_name}</p>
-                            <p className="mt-1 text-sm text-slate-500">{formatCurrency(account.mrr_amount ?? 0)} MRR</p>
-                          </div>
-                          <div className="text-sm text-slate-600">{account.industry}</div>
-                          <div className="text-sm text-slate-600">{account.plan_tier}</div>
-                          <div>
-                            <RiskBadge score={account.health_score ?? 100} compact />
-                          </div>
-                          <div>
-                            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(account.status)}`}>
-                              {getStatusLabel(account.status)}
-                            </span>
-                          </div>
-                        </button>
-                      ))}
+                      .map((account) => {
+                        const workflowStatus = getWorkflowStatus(account)
+
+                        return (
+                          <button
+                            key={account.account_id}
+                            type="button"
+                            onClick={() => navigate(`/account/${account.account_id}`)}
+                            className="grid w-full gap-3 px-5 py-5 text-left transition hover:bg-slate-50 md:grid-cols-[1.6fr_1fr_0.9fr_0.9fr_1fr]"
+                          >
+                            <div>
+                              <p className="text-base font-semibold text-slate-950">{account.account_name}</p>
+                              <p className="mt-1 text-sm text-slate-500">{formatCurrency(account.mrr_amount ?? 0)} MRR</p>
+                            </div>
+                            <div className="text-sm text-slate-600">{account.industry}</div>
+                            <div className="text-sm text-slate-600">{account.plan_tier}</div>
+                            <div>
+                              <RiskBadge score={account.health_score ?? 100} compact />
+                            </div>
+                            <div>
+                              <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getStatusTone(workflowStatus)}`}>
+                                {getStatusLabel(workflowStatus)}
+                              </span>
+                            </div>
+                          </button>
+                        )
+                      })}
               </div>
             </div>
           </div>

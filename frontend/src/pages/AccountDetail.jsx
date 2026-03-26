@@ -21,6 +21,25 @@ function toActionLabel(action) {
     .join(' ')
 }
 
+function getPendingManualActions(detail) {
+  if (!detail?.next_best_action) {
+    return []
+  }
+
+  const executedActions = new Set((detail.actions_taken ?? []).map((action) => action.type))
+  const pendingActions = []
+
+  if (detail.linear_ticket_title && !executedActions.has('linear_ticket')) {
+    pendingActions.push('linear_ticket')
+  }
+
+  if (detail.generated_email && !executedActions.has('email_sent')) {
+    pendingActions.push('send_email')
+  }
+
+  return pendingActions
+}
+
 function AccountDetail() {
   const { id } = useParams()
   const [detail, setDetail] = useState(null)
@@ -108,14 +127,38 @@ function AccountDetail() {
   }
 
   const reviewPending = !detail.status
-  const needsApproval = detail.status === 'needs_approval'
-  const approvalComplete = detail.status === 'approved'
   const executedActionTypes = new Set((detail.actions_taken ?? []).map((action) => action.type))
-  const canCreateLinear = !reviewPending && Boolean(detail.linear_ticket_title) && !executedActionTypes.has('linear_ticket')
-  const canSendEmail = !reviewPending && Boolean(detail.generated_email) && !executedActionTypes.has('email_sent')
-  const combinedActions = ['linear_ticket', 'send_email'].filter((action) =>
-    action === 'linear_ticket' ? canCreateLinear : canSendEmail,
-  )
+  const pendingManualActions = getPendingManualActions(detail)
+  const manualApprovalRequired = !reviewPending && pendingManualActions.length > 0
+  const approvalComplete = !reviewPending && pendingManualActions.length === 0
+  const canCreateLinear = pendingManualActions.includes('linear_ticket')
+  const canSendEmail = pendingManualActions.includes('send_email')
+  const combinedActions = pendingManualActions
+  const executionModeTone = reviewPending
+    ? 'bg-slate-100 text-slate-700'
+    : manualApprovalRequired
+      ? 'bg-orange-100 text-orange-800'
+      : 'bg-sky-100 text-sky-800'
+  const executionModeLabel = reviewPending
+    ? 'Pending Review'
+    : manualApprovalRequired
+      ? 'Approval Required'
+      : 'Completed'
+  const recommendedActionTone = reviewPending
+    ? 'bg-slate-100 text-slate-700'
+    : manualApprovalRequired
+      ? 'bg-orange-100 text-orange-800'
+      : 'bg-sky-100 text-sky-800'
+  const recommendedActionLabel = reviewPending
+    ? 'Pending Review'
+    : manualApprovalRequired
+      ? 'Approval Required'
+      : 'Completed'
+  const executionModeDescription = reviewPending
+    ? detail.autonomy_reason
+    : manualApprovalRequired
+      ? 'Slack notification has already been sent. Review the recommended Linear ticket and email draft, then approve the follow-up actions manually.'
+      : 'Slack notification was sent and the recommended follow-up actions have already been completed.'
 
   return (
     <main className="shell-bg min-h-screen px-4 py-6 sm:px-6 lg:px-10">
@@ -144,19 +187,11 @@ function AccountDetail() {
                 <div className="rounded-[2rem] border border-slate-200 bg-white/80 px-5 py-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">Execution Mode</p>
                   <p
-                    className={`mt-3 inline-flex rounded-full px-3 py-1 text-sm font-semibold ${
-                      reviewPending
-                        ? 'bg-slate-100 text-slate-700'
-                        : needsApproval
-                          ? 'bg-orange-100 text-orange-800'
-                          : approvalComplete
-                            ? 'bg-sky-100 text-sky-800'
-                            : 'bg-emerald-100 text-emerald-800'
-                    }`}
+                    className={`mt-3 inline-flex rounded-full px-3 py-1 text-sm font-semibold ${executionModeTone}`}
                   >
-                    {reviewPending ? 'Pending Review' : needsApproval ? 'Needs Approval' : approvalComplete ? 'Approved' : 'Auto-executed'}
+                    {executionModeLabel}
                   </p>
-                  <p className="mt-3 max-w-xs text-sm leading-6 text-slate-600">{detail.autonomy_reason}</p>
+                  <p className="mt-3 max-w-xs text-sm leading-6 text-slate-600">{executionModeDescription}</p>
                 </div>
               </div>
 
@@ -184,21 +219,9 @@ function AccountDetail() {
                     <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">{toActionLabel(detail.next_best_action)}</h2>
                   </div>
                   <div
-                    className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${
-                      reviewPending
-                        ? 'bg-slate-100 text-slate-700'
-                        : detail.autonomy_level === 'auto' && !approvalComplete
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-orange-100 text-orange-800'
-                    }`}
+                    className={`inline-flex rounded-full px-3 py-1 text-sm font-semibold ${recommendedActionTone}`}
                   >
-                    {reviewPending
-                      ? 'Pending Review'
-                      : detail.autonomy_level === 'auto' && !approvalComplete
-                        ? 'Auto-executed'
-                        : approvalComplete
-                          ? 'Approved'
-                          : 'Needs Approval'}
+                    {recommendedActionLabel}
                   </div>
                 </div>
                 <p className="mt-5 text-sm leading-7 text-slate-700">{detail.action_reasoning}</p>
@@ -260,7 +283,7 @@ function AccountDetail() {
                 </div>
               </div>
 
-              {needsApproval || approvalComplete ? (
+              {manualApprovalRequired ? (
                 <div className="rounded-[2rem] border border-orange-200 bg-orange-50 p-6 shadow-[0_18px_60px_rgba(251,146,60,0.12)]">
                   <p className="text-xs font-semibold uppercase tracking-[0.28em] text-orange-700">Approval Gate</p>
                   <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Approve manual follow-up</h2>
@@ -294,39 +317,13 @@ function AccountDetail() {
                     </button>
                   </div>
                 </div>
-              ) : !reviewPending ? (
-                <div className="rounded-[2rem] border border-slate-200 bg-white/88 p-6 shadow-[0_18px_60px_rgba(15,23,42,0.06)]">
-                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">Manual Actions</p>
-                  <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Approve follow-up actions</h2>
+              ) : approvalComplete ? (
+                <div className="rounded-[2rem] border border-sky-200 bg-sky-50 p-6 shadow-[0_18px_60px_rgba(59,130,246,0.10)]">
+                  <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-700">Workflow Complete</p>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">All follow-up actions approved</h2>
                   <p className="mt-3 text-sm leading-7 text-slate-700">
-                    Slack has already been sent automatically. Linear ticket creation and email sending stay behind human approval.
+                    Slack was sent automatically, and the recommended Linear ticket and email workflow no longer require approval for this account.
                   </p>
-                  <div className="mt-5 space-y-3">
-                    <button
-                      type="button"
-                      onClick={() => handleApprove(['linear_ticket'])}
-                      disabled={isApproving || !canCreateLinear}
-                      className="w-full rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
-                    >
-                      {executedActionTypes.has('linear_ticket') ? 'Linear Ticket Created' : isApproving ? 'Processing...' : 'Create Linear Ticket'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleApprove(['send_email'])}
-                      disabled={isApproving || !canSendEmail}
-                      className="w-full rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-                    >
-                      {executedActionTypes.has('email_sent') ? 'Email Sent' : isApproving ? 'Processing...' : 'Send Approved Email'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleApprove(combinedActions)}
-                      disabled={isApproving || combinedActions.length < 2}
-                      className="w-full rounded-full border border-slate-300 bg-slate-100 px-5 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400"
-                    >
-                      {isApproving ? 'Processing...' : 'Create Both'}
-                    </button>
-                  </div>
                 </div>
               ) : null}
 
